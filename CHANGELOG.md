@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 — 2026-10-08
+
+- Add `review_evidence`: append-only screenshot-quality reviews, explicit reviewer attribution, and optimistic revision conflicts.
+- Add `export_evidence`: offline HTML gallery, Markdown report, original images/metadata/review events, and verified checksums.
+- Filter evidence by review status and retrieve complete review history on demand.
+- Keep review notes out of default compact responses while preserving them on disk.
+- Expose the running server version in capture diagnostics.
+- Expand the MCP catalog from nine to eleven tools; reconnect the client after rebuilding.
+
 ## 0.3.0 — 2026-10-08
 
 - Add window-selection tokens to reject stale captures.

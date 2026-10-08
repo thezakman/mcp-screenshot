@@ -36,6 +36,8 @@ describe("MCP protocol", () => {
         [
           "capture_burp_screenshot",
           "capture_window",
+          "review_evidence",
+          "export_evidence",
           "get_capture_status",
           "get_evidence",
           "list_displays",
@@ -63,6 +65,44 @@ describe("MCP protocol", () => {
       expect(
         (retrieved.content as { type: string }[]).map((c) => c.type),
       ).toEqual(["text", "image"]);
+      expect(backend.capture).toHaveBeenCalledTimes(1);
+      const reviewed = await client.callTool({
+        name: "review_evidence",
+        arguments: {
+          id: record.id,
+          expected_revision: 0,
+          status: "accepted",
+          reviewer: "local test",
+          note: "Fixture review",
+        },
+      });
+      expect(reviewed.isError).not.toBe(true);
+      const reviewSummary = JSON.parse(
+        (reviewed.content as { text: string }[])[0].text,
+      );
+      expect(reviewSummary.review.revision).toBe(1);
+      expect(reviewSummary.review.latest).toBeUndefined();
+      expect(JSON.stringify(reviewSummary)).not.toContain("Fixture review");
+      const status = await client.callTool({
+        name: "get_capture_status",
+        arguments: {},
+      });
+      expect(
+        JSON.parse((status.content as { text: string }[])[0].text).version,
+      ).toBe("0.1.0");
+      const history = await client.callTool({
+        name: "get_evidence",
+        arguments: { id: record.id, include_review_history: true },
+      });
+      expect(
+        JSON.parse((history.content as { text: string }[])[0].text)
+          .review_history,
+      ).toHaveLength(1);
+      const exported = await client.callTool({
+        name: "export_evidence",
+        arguments: { ids: [record.id], title: "Protocol fixture" },
+      });
+      expect(exported.isError).not.toBe(true);
       expect(backend.capture).toHaveBeenCalledTimes(1);
       const invalid = await client.callTool({
         name: "capture_window",

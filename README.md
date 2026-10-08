@@ -14,6 +14,8 @@ Screenshots are saved as lossless PNGs alongside a JSON record. By default, the 
 - **Low context usage:** `include_image: false` by default; retrieve the image later without another capture.
 - **Serialized captures:** a bounded queue prevents overlapping captures. Native operations have timeouts and cancelled queued work is skipped.
 - **Integrity checks:** `get_evidence` checks the saved PNG against its hash, dimensions, and byte count.
+- **Review workflow:** append quality reviews with conflict detection, retaining the original screenshot and capture metadata.
+- **Offline packages:** export selected evidence as HTML, Markdown, original PNGs, JSON, and SHA-256 checksums.
 - **Local storage:** no cloud account, upload service, Burp extension, or Montoya dependency.
 
 ## Requirements
@@ -64,7 +66,7 @@ codex mcp get screenshot
 codex mcp list
 ```
 
-Restart Codex, then use `/mcp` to check the active connection. This version exposes **9 tools**. Ask Codex to call `get_capture_status` first, then `list_windows` to identify the window to capture.
+Restart Codex, then use `/mcp` to check the active connection. This version exposes **11 tools**. Ask Codex to call `get_capture_status` first, then `list_windows` to identify the window to capture.
 
 The CLI registers the server; you do not need to run `npm start` in a separate terminal. Codex starts the stdio process when it connects. If macOS denies screen capture, grant recording permission to the application launching the MCP and restart it.
 
@@ -105,17 +107,19 @@ Find your Node executable with `command -v node`. Restart or reconnect your MCP 
 
 ## Tools
 
-| Tool                      | Purpose                                                                             |
-| ------------------------- | ----------------------------------------------------------------------------------- |
-| `get_capture_status`      | Check permissions, evidence directory, and queue size.                              |
-| `list_windows`            | Discover visible, non-minimized OS windows with IDs, app names, titles, and bounds. |
-| `list_displays`           | List active monitors for explicit whole-display capture.                            |
-| `capture_window`          | Capture one window by ID or a unique app/title selection.                           |
-| `screenshot_app`          | Capture a window belonging to an exact app name or bundle ID.                       |
-| `capture_burp_screenshot` | Capture a Burp Suite window, with optional case/exchange metadata.                  |
-| `take_screenshot`         | Capture an entire monitor, including other visible applications.                    |
-| `list_evidence`           | Browse saved evidence summaries with filtering and pagination.                      |
-| `get_evidence`            | Verify and retrieve an existing evidence record, optionally including its image.    |
+| Tool                      | Purpose                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------ |
+| `get_capture_status`      | Check permissions, evidence directory, and queue size.                                     |
+| `list_windows`            | Discover visible, non-minimized OS windows with IDs, app names, titles, and bounds.        |
+| `list_displays`           | List active monitors for explicit whole-display capture.                                   |
+| `capture_window`          | Capture one window by ID or a unique app/title selection.                                  |
+| `screenshot_app`          | Capture a window belonging to an exact app name or bundle ID.                              |
+| `capture_burp_screenshot` | Capture a Burp Suite window, with optional case/exchange metadata.                         |
+| `take_screenshot`         | Capture an entire monitor, including other visible applications.                           |
+| `list_evidence`           | Browse saved evidence summaries with filtering and pagination.                             |
+| `get_evidence`            | Verify and retrieve a saved record, optionally including its image and review history.     |
+| `review_evidence`         | Append a screenshot-quality review, keeping originals unchanged.                           |
+| `export_evidence`         | Export selected evidence to an offline HTML/Markdown package with originals and checksums. |
 
 Capture tools are annotated as non-destructive writes because they save files. They are not marked read-only merely because they do not interact with the target application.
 
@@ -126,6 +130,7 @@ Capture tools are annotated as non-destructive writes because they save files. T
 3. Call `capture_window` or `capture_burp_screenshot` with a case ID and label.
 4. Keep the returned evidence ID and file path in your notes.
 5. Use `get_evidence` when you need the image or want to verify its integrity.
+6. Record a quality review with `review_evidence`, then export selected IDs with `export_evidence`.
 
 Example tool arguments:
 
@@ -165,6 +170,68 @@ Capture tools and `get_evidence` default to `detail: "summary"`. Use `detail: "f
 
 PNG chunks and CRCs are checked before saving. Metadata retrieval validates the manifest and streams the image hash using a bounded buffer; it does not load the full image unless requested and within the inline limit. PNG chunk checks do not replace a full image decoder or visual review.
 
+## Review and export without recapturing
+
+Retrieve a saved screenshot with `get_evidence`. Its default summary includes the review status and current revision. Use `detail: "full"` for the latest review note, or `include_review_history: true` for all review events. Notes and review history stay out of default summaries to keep MCP context small.
+
+After inspecting the screenshot, call `review_evidence`:
+
+```json
+{
+  "id": "<evidence ID>",
+  "expected_revision": 0,
+  "status": "accepted",
+  "reviewer": "<actual reviewer or agent name>",
+  "note": "The relevant screen content is visible and readable."
+}
+```
+
+Use the revision returned by `get_evidence`, not a hard-coded zero after the first review. Concurrent writers cannot overwrite the same revision: `REVIEW_CONFLICT` means retrieve the latest state before deciding whether to append another review.
+
+| Status            | Meaning                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------ |
+| `unreviewed`      | No assessment yet, or explicitly returned to the review queue.                             |
+| `accepted`        | The reviewer considers the screenshot suitable for its stated purpose.                     |
+| `needs_recapture` | A new capture is needed, for example because the relevant content is absent or unreadable. |
+| `rejected`        | The screenshot should not be used as evidence for its stated purpose.                      |
+
+A review records a **caller-supplied identity**, not authenticated human approval. These statuses concern screenshot quality, not whether a vulnerability is confirmed. Keep automated and human review attribution accurate. Originals remain unchanged; a recapture creates a new evidence ID.
+
+Filter `list_evidence` using `review_status`, together with `case_id`, `exchange_id`, or `query`, to build a review queue. Listing reports review state but does not hash every PNG; use `get_evidence` for integrity verification.
+
+Call `export_evidence` with selected IDs:
+
+```json
+{
+  "ids": ["<first evidence ID>", "<second evidence ID>"],
+  "title": "CASE-024 — evidence review"
+}
+```
+
+The result returns local paths only. Open `html_path` in a browser for an offline gallery, or use `markdown_path` in your report workflow. No capture or upload occurs.
+
+```text
+<evidence directory>/exports/review-<UTC>-<UUID>/
+  index.html       # Offline gallery, no scripts or external assets
+  report.md        # Portable report with relative image links
+  manifest.json    # Export metadata and per-item review snapshots
+  SHA256SUMS       # Checksums for the report and copied evidence files
+  evidence/<ID>/
+    screenshot.png # Exact original bytes
+    evidence.json  # Exact original capture record
+    reviews/       # Exact review events, when present
+```
+
+Exports verify source PNGs and review chains, then publish the completed directory atomically. A failed export leaves no partial published package. Each package supports **1–50 distinct IDs**, up to **256 MiB**. Move the entire package together to retain relative image links. Review snapshots are taken per item as it is read, not as a single transactional snapshot across all evidence.
+
+From the exported directory, verify the package on macOS:
+
+```sh
+shasum -a 256 -c SHA256SUMS
+```
+
+The tool also returns the SHA-256 of `SHA256SUMS`; retain it separately when you need an external reference. Hashes detect changes relative to the supplied records; they are **not digital signatures**. Review events form a hash chain with up to 1,000 revisions per evidence item. Rewriting the complete chain or removing its tail cannot be detected without an independently retained reference. Packages contain the original images and notes; nothing is silently redacted.
+
 ## Evidence format
 
 By default, captures are stored in `~/Pictures/mcp-screenshot`:
@@ -174,6 +241,8 @@ By default, captures are stored in `~/Pictures/mcp-screenshot`:
   <UTC timestamp>_<UUID>/
     screenshot.png
     evidence.json
+    reviews/          # Added only when reviewed
+      0001.json
 ```
 
 Each record includes:
@@ -187,7 +256,7 @@ PNG and JSON are published together using a directory rename. New files use owne
 
 An `exchange_id` is **caller-supplied** and stored as `caller_supplied_unverified`. This is a reference for your records, not proof that the visible screen matches that exchange. Keep the original request/response separately.
 
-`list_evidence` returns small summaries in ascending capture-time order. Filter by `case_id`, `exchange_id`, or a case-insensitive `query` in labels, notes, and tags. Pass `next_cursor` as `after` for the next page and keep the same filter. This is live keyset pagination, not an immutable snapshot; records inserted behind the cursor will not appear in subsequent pages. A page scans at most 500 directories and can return an empty page with a continuation cursor.
+`list_evidence` returns small summaries in ascending capture-time order. Filter by `case_id`, `exchange_id`, `review_status`, or a case-insensitive `query` in labels, notes, and tags. Pass `next_cursor` as `after` for the next page and keep the same filter. This is live keyset pagination, not an immutable snapshot; records inserted behind the cursor will not appear in subsequent pages. A page scans at most 500 directories and can return an empty page with a continuation cursor.
 
 `get_evidence` verifies the image against the manifest. The hash detects changes to the PNG relative to that manifest; it is not a digital signature or tamper-proof audit log.
 
@@ -221,6 +290,9 @@ When `BLOCKED_APPS` is set, whole-display capture is disabled because it could i
 - **`HELPER_MISSING`:** run `npm run build` on macOS and check that Command Line Tools are installed.
 - **`AMBIGUOUS_WINDOW`:** select a `window_id`; do not rely on an app name when multiple project windows exist.
 - **`WINDOW_NOT_FOUND`:** refresh the list. Closed, minimized, or off-space windows may not be available.
+- **`STALE_WINDOW`:** list windows again and confirm the intended window before using its new selection token.
+- **`REVIEW_CONFLICT`:** retrieve the current review revision before retrying.
+- **`INVALID_REVIEW_HISTORY`:** preserve the review files for inspection; their structure or chain no longer agrees.
 - **`WINDOW_CHANGED` / `WINDOW_UNSTABLE`:** wait for resizing/navigation to finish, then retry.
 - **`QUEUE_FULL` / `QUEUE_TIMEOUT`:** wait for the active capture to finish. The queue allows eight total active/waiting captures and expires waiting jobs after 30 seconds. Active jobs keep their slot until their native operation actually finishes or times out.
 - **`INTEGRITY_MISMATCH`:** the PNG and its evidence manifest no longer agree. Preserve the files for inspection.
@@ -237,7 +309,7 @@ npm run build
 node scripts/smoke.mjs
 ```
 
-Tests cover window selection, changed-window rejection, permission errors, queue serialization/cancellation, evidence integrity, pagination, no-overwrite exports, and the actual MCP protocol using an in-memory client.
+Tests cover window selection, changed-window rejection, permissions, queue serialization/cancellation, evidence integrity, pagination, compact responses, concurrent review conflicts, review chain corruption, offline export checksums/escaping, and the actual MCP protocol using an in-memory client. Run `node scripts/protocol-smoke.mjs` after building to verify the real stdio tool catalog.
 
 To explicitly capture a Burp window through the real stdio server:
 

@@ -1,3 +1,6 @@
+import { readReviews, appendReview, digest } from "./reviews.js";
+import type { reviewInput } from "./reviews.js";
+import type { z } from "zod";
 import { pngInfo, pngEdges } from "./png.js";
 export { pngInfo } from "./png.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -126,16 +129,19 @@ export class EvidenceStore {
         "Use an evidence ID returned by this server.",
       );
   }
-  async get(id: string, withImage = false, imageLimit = 64 * 1024 * 1024) {
+  async get(
+    id: string,
+    withImage = false,
+    imageLimit = 64 * 1024 * 1024,
+    includeHistory = false,
+  ) {
     this.validId(id);
     const root = await this.rootPath(),
       directory = join(root, id);
     await assertDirectory(directory);
     const manifestPath = join(directory, "evidence.json");
-    const evidence = parseManifest(
-      await readBounded(manifestPath, 64 * 1024),
-      id,
-    );
+    const manifestBytes = await readBounded(manifestPath, 64 * 1024);
+    const evidence = parseManifest(manifestBytes, id);
     const path = join(directory, "screenshot.png");
     const { file, stat } = await openRegular(path, 64 * 1024 * 1024);
     let data: Buffer | undefined;
@@ -214,16 +220,33 @@ export class EvidenceStore {
       evidence.warnings.push(
         "Inline image omitted: exceeds the inline limit; full PNG remains on disk.",
       );
+    const { review, history } = await readReviews(
+      directory,
+      id,
+      evidence.sha256,
+    );
     return {
       ...evidence,
+      review,
+      ...(includeHistory ? { review_history: history } : {}),
+      manifest_sha256: digest(manifestBytes),
       path,
       manifest_path: manifestPath,
       integrity: "verified" as const,
       ...(withImage ? { data } : {}),
     };
   }
+  async review(id: string, input: z.infer<typeof reviewInput>) {
+    const item = await this.get(id);
+    return {
+      id,
+      review: await appendReview(dirname(item.path), id, item.sha256, input),
+    };
+  }
   async list(
     options: {
+      review_status?:
+        "unreviewed" | "accepted" | "needs_recapture" | "rejected";
       case_id?: string;
       exchange_id?: string;
       query?: string;
@@ -258,6 +281,8 @@ export class EvidenceStore {
       exchange_id?: string;
       width: number;
       height: number;
+      review_status: string;
+      review_revision: number;
     }[] = [];
     const limit = Math.max(1, Math.min(options.limit ?? 20, 100));
     let scanned = 0,
@@ -293,7 +318,12 @@ export class EvidenceStore {
             .includes(options.query.toLowerCase())
         )
           continue;
+        const { review } = await readReviews(dir, id, item.sha256);
+        if (options.review_status && review.status !== options.review_status)
+          continue;
         items.push({
+          review_status: review.status,
+          review_revision: review.revision,
           id,
           captured_at: item.captured_at,
           label: item.context?.label,

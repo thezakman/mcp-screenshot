@@ -1,7 +1,9 @@
+import { reviewInput, reviewStatus } from "./reviews.js";
+import { exportEvidence } from "./export.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { CaptureService, MAX_IMAGE_BYTES } from "./capture.js";
-import { presentEvidence } from "./responses.js";
+import { presentEvidence, presentReview } from "./responses.js";
 import { windowToken } from "./native.js";
 import { failure } from "./errors.js";
 const detailField = z.enum(["summary", "full"]).default("summary");
@@ -92,7 +94,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
     { name: "mcp-screenshot", version },
     {
       instructions:
-        "Use list_windows, then capture_window by OS window_id. Captures save PNG + JSON locally and return small metadata by default. Request include_image only when visual inspection is needed. Capture tools do not select Burp tabs, send requests, or verify caller-supplied exchange IDs. Confirm the desired content is visible first. No capture is made automatically on connection.",
+        "Use list_windows then capture_window with window_id and expected_window_token. Captures save PNG + JSON locally; include_image is opt-in. Confirm content is visible: captures do not select tabs or verify exchange IDs. Reuse list_evidence/get_evidence before recapturing. Append screenshot reviews with review_evidence; export selected IDs with export_evidence for offline review. Review status is not vulnerability validation. Nothing is captured on connection.",
     },
   );
   server.registerTool(
@@ -103,7 +105,8 @@ export function createServer(service = new CaptureService(), version = "dev") {
       inputSchema: {},
       annotations: readAnnotations,
     },
-    () => guarded(async () => textResult(await service.status())),
+    () =>
+      guarded(async () => textResult({ version, ...(await service.status()) })),
   );
   server.registerTool(
     "list_windows",
@@ -221,6 +224,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
       description:
         "List locally saved evidence summaries in capture-time order. Continue with next_cursor as after; no screenshots are taken.",
       inputSchema: {
+        review_status: reviewStatus.optional(),
         case_id: z.string().max(120).optional(),
         exchange_id: z.string().max(200).optional(),
         query: z.string().min(1).max(200).optional(),
@@ -238,6 +242,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
         "Retrieve an evidence record by ID and verify its PNG hash. Optionally return the image, up to 5 MiB, without recapturing.",
       inputSchema: {
         id: z.string().max(100),
+        include_review_history: z.boolean().default(false),
         detail: detailField,
         include_image: z.boolean().default(false),
       },
@@ -249,6 +254,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
           args.id,
           args.include_image,
           MAX_IMAGE_BYTES,
+          args.include_review_history,
         );
         const inline = data && data.length <= MAX_IMAGE_BYTES;
         if (data && !inline)
@@ -257,12 +263,15 @@ export function createServer(service = new CaptureService(), version = "dev") {
           );
         return {
           content: [
-            ...textResult(
-              presentEvidence(
+            ...textResult({
+              ...presentEvidence(
                 { ...item, image_included: !!inline },
                 args.detail,
               ),
-            ).content,
+              ...(args.include_review_history
+                ? { review_history: item.review_history }
+                : {}),
+            }).content,
             ...(inline
               ? [
                   {
@@ -275,6 +284,46 @@ export function createServer(service = new CaptureService(), version = "dev") {
           ],
         };
       }),
+  );
+  server.registerTool(
+    "review_evidence",
+    {
+      description:
+        "Append a review of screenshot quality without changing the original PNG or capture metadata. Reviewer identity is caller-supplied. Use the revision from get_evidence to avoid overwriting another review.",
+      inputSchema: { id: z.string().max(100), ...reviewInput.shape },
+      annotations: captureAnnotations,
+    },
+    (args) =>
+      guarded(async () => {
+        const result = await service.store.review(args.id, args);
+        return textResult({
+          id: result.id,
+          review: presentReview(result.review),
+        });
+      }),
+  );
+  server.registerTool(
+    "export_evidence",
+    {
+      description:
+        "Build an offline HTML/Markdown review package from 1–50 existing evidence IDs. Verify originals and copy them losslessly; never recapture or upload. Returns local paths only.",
+      inputSchema: {
+        ids: z.array(z.string().max(100)).min(1).max(50),
+        title: z.string().trim().min(1).max(200).default("Evidence review"),
+      },
+      annotations: captureAnnotations,
+    },
+    (args, extra) =>
+      guarded(async () =>
+        textResult(
+          await exportEvidence(
+            service.store,
+            args.ids,
+            args.title,
+            extra.signal,
+          ),
+        ),
+      ),
   );
   return server;
 }

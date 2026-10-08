@@ -1,4 +1,19 @@
 import type { CaptureMetadata, Evidence } from "./evidence.js";
+import type { ReviewState } from "./reviews.js";
+export function presentReview(review: ReviewState) {
+  return {
+    revision: review.revision,
+    status: review.status,
+    ...(review.latest
+      ? {
+          reviewed_at: review.latest.reviewed_at,
+          reviewer: review.latest.reviewer,
+          attribution: review.latest.attribution,
+          event_sha256: review.latest.event_sha256,
+        }
+      : {}),
+  };
+}
 type EvidenceView = CaptureMetadata &
   Partial<Pick<Evidence, "id" | "context" | "association">> & {
     path?: string;
@@ -6,7 +21,7 @@ type EvidenceView = CaptureMetadata &
     integrity?: string;
     persisted?: boolean;
     image_included?: boolean;
-    review?: unknown;
+    review?: ReviewState;
   };
 export type Detail = "summary" | "full";
 /** Presentation only: original manifests and images are never truncated or rewritten. */
@@ -38,7 +53,7 @@ export function presentEvidence(
       persisted: item.persisted,
       image_included: item.image_included,
       warnings: item.warnings,
-      review: item.review,
+      review: item.review ? presentReview(item.review) : undefined,
     }).filter(([, value]) => value !== undefined),
   );
 }
