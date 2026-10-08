@@ -1,0 +1,21 @@
+{
+  "name": "@thezakman/mcp-screenshot",
+  "version": "0.1.0",
+  "description": "Window screenshots and traceable local evidence over MCP for macOS.",
+  "type": "module",
+  "private": true,
+  "engines": {"node": ">=22"},
+  "bin": {"mcp-screenshot": "dist/index.js"},
+  "files": ["dist", "README.md", "LICENSE"],
+  "repository": {"type": "git", "url": "https://github.com/thezakman/mcp-screenshot.git"},
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "start": "node dist/index.js",
+    "doctor": "node dist/index.js --doctor"
+  },
+  "dependencies": {"@modelcontextprotocol/sdk": "^1.12.0", "zod": "^3.24.0"},
+  "devDependencies": {"@types/node": "^22.0.0", "esbuild": "^0.25.0", "typescript": "^5.7.0", "vitest": "^4.1.7"}
+}
