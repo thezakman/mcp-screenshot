@@ -1,8 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { CaptureService, MAX_IMAGE_BYTES } from "./capture.js";
+import { presentEvidence } from "./responses.js";
+import { windowToken } from "./native.js";
 import { failure } from "./errors.js";
+const detailField = z.enum(["summary", "full"]).default("summary");
 const evidenceFields = {
+  detail: detailField,
   persist: z
     .boolean()
     .default(true)
@@ -33,6 +37,13 @@ const evidenceFields = {
     ),
 };
 const windowFields = {
+  expected_window_token: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional()
+    .describe(
+      "Token from list_windows; reject stale window identity before capturing.",
+    ),
   window_id: z
     .number()
     .int()
@@ -102,11 +113,27 @@ export function createServer(service = new CaptureService(), version = "dev") {
       inputSchema: {
         app_name: z.string().max(200).optional(),
         title: z.string().max(500).optional(),
+        detail: detailField,
       },
       annotations: readAnnotations,
     },
     (args) =>
-      guarded(async () => textResult({ windows: await service.windows(args) })),
+      guarded(async () =>
+        textResult({
+          windows: (await service.windows(args)).map((w) => ({
+            ...(args.detail === "full"
+              ? w
+              : {
+                  id: w.id,
+                  pid: w.pid,
+                  app: w.app,
+                  title: w.title,
+                  bundleId: w.bundleId,
+                }),
+            selection_token: windowToken(w),
+          })),
+        }),
+      ),
   );
   server.registerTool(
     "list_displays",
@@ -120,13 +147,15 @@ export function createServer(service = new CaptureService(), version = "dev") {
       guarded(async () => textResult({ displays: await service.displays() })),
   );
   const captureResult = async (
-    options: Parameters<CaptureService["capture"]>[0],
+    options: Parameters<CaptureService["capture"]>[0] & {
+      detail?: "summary" | "full";
+    },
     signal: AbortSignal,
   ) => {
     const { metadata, image } = await service.capture(options, signal);
     return {
       content: [
-        ...textResult(metadata).content,
+        ...textResult(presentEvidence(metadata, options.detail)).content,
         ...(image
           ? [{ type: "image" as const, data: image, mimeType: "image/png" }]
           : []),
@@ -164,6 +193,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
         "Capture the visible Burp Suite window. Select window_id if multiple Burp windows exist. Does not select Repeater tabs or resend traffic.",
       inputSchema: {
         window_id: windowFields.window_id,
+        expected_window_token: windowFields.expected_window_token,
         title: windowFields.title,
         ...evidenceFields,
       },
@@ -208,6 +238,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
         "Retrieve an evidence record by ID and verify its PNG hash. Optionally return the image, up to 5 MiB, without recapturing.",
       inputSchema: {
         id: z.string().max(100),
+        detail: detailField,
         include_image: z.boolean().default(false),
       },
       annotations: readAnnotations,
@@ -217,6 +248,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
         const { data, ...item } = await service.store.get(
           args.id,
           args.include_image,
+          MAX_IMAGE_BYTES,
         );
         const inline = data && data.length <= MAX_IMAGE_BYTES;
         if (data && !inline)
@@ -225,7 +257,12 @@ export function createServer(service = new CaptureService(), version = "dev") {
           );
         return {
           content: [
-            ...textResult({ ...item, image_included: !!inline }).content,
+            ...textResult(
+              presentEvidence(
+                { ...item, image_included: !!inline },
+                args.detail,
+              ),
+            ).content,
             ...(inline
               ? [
                   {

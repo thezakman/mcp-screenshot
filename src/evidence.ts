@@ -1,3 +1,5 @@
+import { pngInfo, pngEdges } from "./png.js";
+export { pngInfo } from "./png.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   mkdir,
@@ -20,7 +22,8 @@ import {
   basename,
 } from "node:path";
 import { homedir } from "node:os";
-import { constants } from "node:fs";
+import { assertDirectory, readBounded, openRegular } from "./storage.js";
+import { parseManifest, manifestSchema } from "./manifest.js";
 import { ScreenshotError } from "./errors.js";
 import type { WindowInfo } from "./native.js";
 const ID_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_[0-9a-f-]{36}$/;
@@ -51,35 +54,6 @@ export interface Evidence extends CaptureMetadata {
   association: "caller_supplied_unverified" | "none";
   image: string;
 }
-export function pngInfo(data: Buffer) {
-  if (
-    data.length < 45 ||
-    !data
-      .subarray(0, 8)
-      .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
-    data.toString("ascii", 12, 16) !== "IHDR" ||
-    data.readUInt32BE(8) !== 13 ||
-    data.toString("ascii", data.length - 8, data.length - 4) !== "IEND"
-  ) {
-    throw new ScreenshotError(
-      "INVALID_IMAGE",
-      "Capture did not produce a complete PNG.",
-    );
-  }
-  const width = data.readUInt32BE(16),
-    height = data.readUInt32BE(20);
-  if (!width || !height || width * height > 150_000_000)
-    throw new ScreenshotError(
-      "INVALID_IMAGE",
-      "PNG dimensions are invalid or exceed 150 megapixels.",
-    );
-  return {
-    width,
-    height,
-    bytes: data.length,
-    sha256: createHash("sha256").update(data).digest("hex"),
-  };
-}
 export class EvidenceStore {
   readonly root: string;
   constructor(root = process.env.MCP_SCREENSHOT_DIR ?? DEFAULT_ROOT) {
@@ -99,6 +73,17 @@ export class EvidenceStore {
     meta: CaptureMetadata,
     context: EvidenceContext = {},
   ): Promise<Evidence & { path: string; manifest_path: string }> {
+    const actual = pngInfo(data);
+    if (
+      actual.sha256 !== meta.sha256 ||
+      actual.width !== meta.width ||
+      actual.height !== meta.height ||
+      actual.bytes !== meta.bytes
+    )
+      throw new ScreenshotError(
+        "INVALID_METADATA",
+        "Capture metadata does not match the PNG.",
+      );
     const root = await this.rootPath(true);
     const id = `${meta.captured_at.replace(/[:.]/g, "-")}_${randomUUID()}`;
     const temp = await mkdtemp(join(root, ".pending-"));
@@ -112,6 +97,7 @@ export class EvidenceStore {
       image: "screenshot.png",
     };
     try {
+      manifestSchema.parse(evidence);
       await writeFile(join(temp, evidence.image), data, {
         flag: "wx",
         mode: 0o600,
@@ -140,46 +126,79 @@ export class EvidenceStore {
         "Use an evidence ID returned by this server.",
       );
   }
-  async get(id: string, withImage = false) {
+  async get(id: string, withImage = false, imageLimit = 64 * 1024 * 1024) {
     this.validId(id);
     const root = await this.rootPath(),
       directory = join(root, id);
-    if ((await lstat(directory)).isSymbolicLink())
-      throw new ScreenshotError(
-        "INVALID_PATH",
-        "Evidence directories cannot be symlinks.",
-      );
+    await assertDirectory(directory);
     const manifestPath = join(directory, "evidence.json");
-    const readBounded = async (path: string, limit: number) => {
-      const { open } = await import("node:fs/promises");
-      const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-      try {
-        const stat = await file.stat();
-        if (!stat.isFile() || stat.size > limit)
-          throw new ScreenshotError(
-            "EVIDENCE_TOO_LARGE",
-            "Evidence exceeds its size limit.",
-          );
-        return await file.readFile();
-      } finally {
-        await file.close();
-      }
-    };
-    const evidence = JSON.parse(
-      (await readBounded(manifestPath, 64 * 1024)).toString(),
-    ) as Evidence;
-    if (
-      evidence.schema_version !== 1 ||
-      evidence.id !== id ||
-      evidence.image !== "screenshot.png"
-    )
-      throw new ScreenshotError(
-        "INVALID_MANIFEST",
-        "Invalid evidence manifest.",
-      );
+    const evidence = parseManifest(
+      await readBounded(manifestPath, 64 * 1024),
+      id,
+    );
     const path = join(directory, "screenshot.png");
-    const data = await readBounded(path, 64 * 1024 * 1024);
-    const actual = pngInfo(data);
+    const { file, stat } = await openRegular(path, 64 * 1024 * 1024);
+    let data: Buffer | undefined;
+    let actual: {
+      sha256: string;
+      width: number;
+      height: number;
+      bytes: number;
+    };
+    try {
+      const hash = createHash("sha256");
+      const scratch = Buffer.alloc(64 * 1024);
+      const chunks: Buffer[] = [];
+      const header = Buffer.alloc(33);
+      const tail = Buffer.alloc(12);
+      let offset = 0;
+      while (offset < stat.size) {
+        const { bytesRead } = await file.read(
+          scratch,
+          0,
+          Math.min(scratch.length, stat.size - offset),
+          offset,
+        );
+        if (!bytesRead)
+          throw new ScreenshotError(
+            "FILE_CHANGED",
+            "Evidence changed while hashing.",
+          );
+        const chunk = scratch.subarray(0, bytesRead);
+        hash.update(chunk);
+        if (offset < 33)
+          chunk.copy(header, offset, 0, Math.min(bytesRead, 33 - offset));
+        if (offset + bytesRead > stat.size - 12)
+          chunk.copy(
+            tail,
+            Math.max(0, offset - (stat.size - 12)),
+            Math.max(0, stat.size - 12 - offset),
+          );
+        if (withImage && stat.size <= imageLimit)
+          chunks.push(Buffer.from(chunk));
+        offset += bytesRead;
+      }
+      const after = await file.stat();
+      if (
+        after.size !== stat.size ||
+        after.mtimeMs !== stat.mtimeMs ||
+        after.ctimeMs !== stat.ctimeMs
+      )
+        throw new ScreenshotError(
+          "FILE_CHANGED",
+          "Evidence changed while hashing.",
+        );
+      const info = pngEdges(header, tail);
+      actual = {
+        width: info.width,
+        height: info.height,
+        bytes: offset,
+        sha256: hash.digest("hex"),
+      };
+      if (withImage && stat.size <= imageLimit) data = Buffer.concat(chunks);
+    } finally {
+      await file.close();
+    }
     if (
       actual.sha256 !== evidence.sha256 ||
       actual.width !== evidence.width ||
@@ -191,6 +210,10 @@ export class EvidenceStore {
         "PNG no longer matches its recorded SHA-256 and dimensions.",
       );
     }
+    if (withImage && stat.size > imageLimit)
+      evidence.warnings.push(
+        "Inline image omitted: exceeds the inline limit; full PNG remains on disk.",
+      );
     return {
       ...evidence,
       path,
@@ -245,13 +268,12 @@ export class EvidenceStore {
       cursor = id;
       try {
         this.validId(id);
-        const file = join(root, id, "evidence.json");
-        const stat = await lstat(file);
-        if (!stat.isFile() || stat.size > 64 * 1024)
-          throw new Error("Invalid manifest");
-        const item = JSON.parse(await readFile(file, "utf8")) as Evidence;
-        if (item.id !== id || item.schema_version !== 1)
-          throw new Error("Invalid manifest");
+        const dir = join(root, id);
+        await assertDirectory(dir);
+        const item = parseManifest(
+          await readBounded(join(dir, "evidence.json"), 64 * 1024),
+          id,
+        );
         if (options.case_id && item.context?.case_id !== options.case_id)
           continue;
         if (

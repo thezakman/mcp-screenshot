@@ -1,3 +1,4 @@
+import { crc32 } from "../src/png.js";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   mkdtemp,
@@ -124,3 +125,37 @@ it("does not create an evidence directory while listing an empty store", async (
   expect((await new EvidenceStore(missing).list()).items).toEqual([]);
   await expect(access(missing)).rejects.toThrow();
 });
+it("rejects inconsistent manifests before returning metadata", async () => {
+  const saved = await store.save(PNG, meta());
+  const manifest = JSON.parse(await readFile(saved.manifest_path, "utf8"));
+  manifest.context = { tags: "not-an-array" };
+  await writeFile(saved.manifest_path, JSON.stringify(manifest));
+  await expect(store.get(saved.id)).rejects.toThrow("malformed");
+  const listing = await store.list();
+  expect(listing.items).toEqual([]);
+  expect(listing.skipped).toEqual([saved.id]);
+});
+it("hashes multi-chunk evidence without returning the image by default", async () => {
+  const large = Buffer.concat([
+    PNG.subarray(0, PNG.length - 12),
+    ancillaryChunk(),
+    PNG.subarray(PNG.length - 12),
+  ]);
+  const saved = await store.save(large, { ...meta(), ...pngInfo(large) });
+  const read = await store.get(saved.id);
+  expect(read.data).toBeUndefined();
+  expect(read.integrity).toBe("verified");
+  expect(read.bytes).toBe(large.length);
+  expect((await store.get(saved.id, true)).data).toEqual(large);
+});
+
+function ancillaryChunk() {
+  const payload = Buffer.alloc(150000, 32),
+    type = Buffer.from("tEXt");
+  const data = Buffer.concat([type, payload]);
+  const result = Buffer.alloc(data.length + 8);
+  result.writeUInt32BE(payload.length, 0);
+  data.copy(result, 4);
+  result.writeUInt32BE(crc32(data), result.length - 4);
+  return result;
+}

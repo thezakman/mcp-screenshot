@@ -1,7 +1,7 @@
 import type { WindowInfo } from "../src/native.js";
 // Lossless 1x1 PNG fixture, never sourced from the user's screen.
 export const PNG = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a21sAAAAASUVORK5CYII=",
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=",
   "base64",
 );
 export const WINDOW: WindowInfo = {

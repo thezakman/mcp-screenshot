@@ -10,6 +10,7 @@ import {
   captureStatus,
   selectWindow,
   sameWindow,
+  windowToken,
   type WindowInfo,
   type CaptureStatus,
   type DisplayInfo,
@@ -33,6 +34,7 @@ export interface CaptureOptions extends EvidenceContext {
   include_image?: boolean;
   save_path?: string;
   persist?: boolean;
+  expected_window_token?: string;
 }
 export interface Backend {
   windows(): Promise<WindowInfo[]>;
@@ -148,6 +150,15 @@ export class CaptureService {
             "Use list_windows and select window_id or an exact app_name.",
           );
         window = selectWindow(await this.backend.windows(), options);
+        if (
+          options.expected_window_token &&
+          windowToken(window) !== options.expected_window_token
+        )
+          throw new ScreenshotError(
+            "STALE_WINDOW",
+            "The selected window changed since list_windows. Refresh the list before capturing.",
+            true,
+          );
         if (this.isBlocked(window))
           throw new ScreenshotError(
             "APP_BLOCKED",
@@ -177,6 +188,15 @@ export class CaptureService {
           window = next;
         }
         selectWindow([window], options);
+        if (
+          options.expected_window_token &&
+          windowToken(window) !== options.expected_window_token
+        )
+          throw new ScreenshotError(
+            "STALE_WINDOW",
+            "The selected window changed while waiting. Refresh list_windows.",
+            true,
+          );
         if (!ready)
           throw new ScreenshotError(
             "WINDOW_UNSTABLE",

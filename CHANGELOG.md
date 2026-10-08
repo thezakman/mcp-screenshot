@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 — 2026-10-08
+
+- Add window-selection tokens to reject stale captures.
+- Return compact summaries by default, with full metadata available explicitly.
+- Stream integrity checks instead of loading full PNGs for metadata requests.
+- Validate evidence manifests and PNG chunk integrity before saving.
+- Keep version 1 evidence manifests readable.
+
 ## 0.2.0 — 2026-10-08
 
 - Distinguish Burp Suite windows from Burp Browser.

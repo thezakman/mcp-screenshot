@@ -4,7 +4,7 @@
 
 MCP Screenshot gives AI clients a focused set of tools for capturing macOS windows and saving evidence. Capture Burp Suite, a browser, or a terminal without moving the mouse, switching tabs, or stealing focus.
 
-Screenshots are saved as lossless PNGs alongside a JSON record. By default, the client receives only metadata; images enter the conversation only when requested.
+Screenshots are saved as lossless PNGs alongside a JSON record. By default, the client receives a compact metadata summary; use `detail: "full"` for the complete record. Images enter the conversation only when requested.
 
 ## What it does
 
@@ -156,6 +156,14 @@ The same capture can be retrieved without touching the application again:
 An MCP client can call these tools at selected workflow milestones, then attach the returned evidence IDs to its report. This server does not run a background recorder or start capturing when it connects. It does not send network requests or rerun a test to obtain a screenshot.
 
 The capture checks that the selected window's identity, title, and bounds settle before capture and remain unchanged afterward. It **does not prove that page content has finished loading** or that a particular Burp exchange is on screen. Select and confirm the content before capture.
+
+## Precise selection and economical responses
+
+`list_windows` returns a `selection_token` describing the current window identity, title, and bounds. Pass it back as `expected_window_token` when capturing. If the window changes between selection and capture, the server returns `STALE_WINDOW` instead of silently accepting the new state. This token checks window metadata; it does not authenticate the application or verify the visible page content.
+
+Capture tools and `get_evidence` default to `detail: "summary"`. Use `detail: "full"` when you need the complete context, notes, window geometry, and manifest path. Both modes preserve the full record on disk. `list_windows` also accepts `detail: "full"` for geometry.
+
+PNG chunks and CRCs are checked before saving. Metadata retrieval validates the manifest and streams the image hash using a bounded buffer; it does not load the full image unless requested and within the inline limit. PNG chunk checks do not replace a full image decoder or visual review.
 
 ## Evidence format
 

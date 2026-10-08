@@ -1,6 +1,6 @@
 {
   "name": "@thezakman/mcp-screenshot",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Window screenshots and traceable local evidence over MCP for macOS.",
   "type": "module",
   "private": true,

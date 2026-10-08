@@ -82,3 +82,14 @@ describe("capture workflow", () => {
     expect(backend.capture).not.toHaveBeenCalled();
   });
 });
+it("rejects a reused OS window ID using the selection token without capturing", async () => {
+  const { windowToken } = await import("../src/native.js");
+  const token = windowToken(WINDOW);
+  vi.mocked(backend.windows).mockResolvedValue([
+    { ...WINDOW, pid: WINDOW.pid + 1 },
+  ]);
+  await expect(
+    service.capture({ window_id: WINDOW.id, expected_window_token: token }),
+  ).rejects.toThrow("changed since list_windows");
+  expect(backend.capture).not.toHaveBeenCalled();
+});

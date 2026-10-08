@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -85,4 +86,22 @@ export function sameWindow(a: WindowInfo, b: WindowInfo): boolean {
     a.title === b.title &&
     JSON.stringify(a.bounds) === JSON.stringify(b.bounds)
   );
+}
+
+export function windowToken(w: WindowInfo) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        w.id,
+        w.pid,
+        w.app,
+        w.bundleId,
+        w.title,
+        w.bounds.x,
+        w.bounds.y,
+        w.bounds.width,
+        w.bounds.height,
+      ]),
+    )
+    .digest("hex");
 }
