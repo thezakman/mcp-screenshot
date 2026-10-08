@@ -45,6 +45,44 @@ node /absolute/path/to/mcp-screenshot/dist/index.js
 
 Configure that command in your MCP client. Use absolute paths, especially when the client starts from a GUI with a different working directory or `PATH`.
 
+### Codex CLI
+
+After building, run this **from the root of your cloned `mcp-screenshot` repository**:
+
+```sh
+codex mcp add screenshot \
+  --env MCP_SCREENSHOT_DIR="$HOME/Pictures/mcp-screenshot" \
+  -- "$(command -v node)" "$PWD/dist/index.js"
+```
+
+The shell expands both executable and server paths before Codex saves the configuration. The evidence directory is created when you save your first screenshot. Change `MCP_SCREENSHOT_DIR` if you want another folder.
+
+Check the saved entry:
+
+```sh
+codex mcp get screenshot
+codex mcp list
+```
+
+Restart Codex, then use `/mcp` to check the active connection. This version exposes **9 tools**. Ask Codex to call `get_capture_status` first, then `list_windows` to identify the window to capture.
+
+The CLI registers the server; you do not need to run `npm start` in a separate terminal. Codex starts the stdio process when it connects. If macOS denies screen capture, grant recording permission to the application launching the MCP and restart it.
+
+For manual configuration, the equivalent entry in `~/.codex/config.toml` is:
+
+```toml
+[mcp_servers.screenshot]
+command = "/absolute/path/to/node"
+args = ["/absolute/path/to/mcp-screenshot/dist/index.js"]
+
+[mcp_servers.screenshot.env]
+MCP_SCREENSHOT_DIR = "/absolute/path/to/evidence"
+```
+
+Replace the absolute paths for your machine. Use either the CLI command or the TOML entry; both configure the same server name.
+
+Reference: [OpenAI documentation — MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+
 ### MCP client configuration
 
 For clients using a JSON `mcpServers` configuration:
