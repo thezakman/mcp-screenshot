@@ -382,7 +382,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
     "select_capture_region",
     {
       description:
-        "Open a frozen window/display preview. Drag a region, Enter confirms, Escape cancels. Times out after 120 seconds. Optionally save an immutable named window profile. No evidence is persisted. Use a new name to recalibrate, or delete the old profile first.",
+        "Open a frozen window/display preview. Drag a region, Enter confirms, Escape cancels. Times out after 300 seconds. Optionally save an immutable named window profile. No evidence is persisted. Use a new name to recalibrate, or delete the old profile first.",
       inputSchema: {
         ...windowFields,
         display: z.number().int().positive().optional(),

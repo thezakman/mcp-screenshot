@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+
+- Make visual selections movable and resizable with eight handles, keyboard nudging, dimmed surroundings and explicit confirm/cancel/reset buttons.
+- Explicitly focus the selection view and support both Return and keypad Enter. Allow five minutes for selection.
+
 ## 0.5.0
 
 - Add normalized crops, frozen native region selection, persistent named profiles, and foreground-app capture.

@@ -325,7 +325,7 @@ See [CHANGELOG.md](CHANGELOG.md) for versioned changes and [LICENSE](LICENSE) fo
 
 Use `select_capture_region` with a `window_id` and optional `name`, for example
 `burp-response`. A frozen preview opens locally: drag a rectangle, then press
-Enter to confirm or Escape to cancel. Selection expires after 120 seconds;
+Enter or Confirmar to confirm, or Escape/Cancelar to cancel. Move the selection by dragging inside it; resize using its edges or eight handles. Arrow keys move it precisely (Shift: larger steps), and Refazer clears it. Selection expires after 300 seconds;
 clients with shorter call timeouts may need a longer timeout. Only one selector
 can run at a time. No evidence is saved during selection. Previews are currently
 limited to 5 MiB. The capture queue is released before interactive selection.

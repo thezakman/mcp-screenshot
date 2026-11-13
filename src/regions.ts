@@ -133,7 +133,7 @@ export async function selectRegion(
     dir = await mkdtemp(join(tmpdir(), "screenshot-select-"));
     const input = join(dir, "preview.png");
     await writeFile(input, data, { mode: 0o600 });
-    const result = await native<unknown>("select", [input], 120000, signal);
+    const result = await native<unknown>("select", [input], 300000, signal);
     if (result && typeof result === "object" && "cancelled" in result)
       throw new Error("SELECTION_CANCELLED: no profile or evidence saved.");
     return regionSchema.parse(result);
