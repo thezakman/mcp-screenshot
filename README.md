@@ -325,7 +325,7 @@ See [CHANGELOG.md](CHANGELOG.md) for versioned changes and [LICENSE](LICENSE) fo
 
 Use `select_capture_region` with a `window_id` and optional `name`, for example
 `burp-response`. A frozen preview opens locally: drag a rectangle, then press
-Enter or Confirmar to confirm, or Escape/Cancelar to cancel. Move the selection by dragging inside it; resize using its edges or eight handles. Arrow keys move it precisely (Shift: larger steps), and Refazer clears it. Selection expires after 300 seconds;
+Use Salvar apenas a seleção to confirm the region/profile, Capturar e salvar (Return) to save a fresh screenshot, or Escape/Cancelar to cancel. Move the selection by dragging inside it; resize using its edges or eight handles. Arrow keys move it precisely (Shift: larger steps), and Limpar região clears it. Selection expires after 300 seconds;
 clients with shorter call timeouts may need a longer timeout. Only one selector
 can run at a time. No evidence is saved during selection. Previews are currently
 limited to 5 MiB. The capture queue is released before interactive selection.
@@ -353,7 +353,7 @@ multiple monitors in one gesture.
 `capture_frontmost_window` resolves the foreground app before capturing. If it
 has multiple visible windows, select one explicitly rather than guessing.
 
-New evidence lives at `<root>/<app>/<evidence-id>/screenshot.png` with its JSON
+New evidence lives at `<root>/<project>/<app>/<evidence-id>/screenshot.png` with its JSON
 sidecar. Common folder names include `burp-suite`, `chrome`, `iterm2`, and
 `desktop`; other names are sanitized. Legacy root-level evidence remains readable,
 reviewable and exportable without migration. Profiles live in `<root>/profiles`.
@@ -363,18 +363,18 @@ The full source screenshot is temporary; only the requested crop is persisted.
 
 `select_capture_region` now opens a capture workspace. Start with a `window_id`
 or `display`; the target menu can then switch between available windows and
-monitors. **Selecionar tudo** selects the entire current image. To capture a whole
+monitors. **Imagem inteira** selects the entire current image. To capture a whole
 screen, first choose its monitor in the target menu.
 
 The profile menu shows profiles compatible with the current app and window size.
 Load one to restore its rectangle. Enter a new name in the adjacent field to
 create another profile. Existing names cannot silently overwrite geometry: use a
-new name for adjustments. **Confirmar** returns the region and saves a named
+new name for adjustments. **Salvar apenas a seleção** returns the region and saves a named
 profile; **Capturar e salvar** additionally captures the current target and saves
 PNG/JSON evidence. The latter takes a fresh capture, so content may have changed
-since the preview. **Refazer** clears the region without deleting profiles.
+since the preview. **Limpar região** clears the region without deleting profiles.
 
-**Configurações…** opens a modal with the current evidence/profile paths, a native
+**Pasta e gerenciamento de perfis…** opens a modal with the current evidence/profile paths, a native
 folder chooser, and profile rename/delete actions. Deletion requires an explicit
 confirmation in the modal and preserves existing evidence. Profile management and
 folder changes apply immediately; cancelling the later selection does not undo
@@ -389,4 +389,21 @@ has priority and locks the destination chooser; when set, profiles also remain
 under that configured root. Other already-running server processes must reconnect
 to adopt a changed destination. Each interactive step allows five minutes.
 
-The workspace keeps its controls above the image and shows selection dimensions in pixels. **Manter no topo** is enabled by default so changing application focus does not cover the selector; turn it off to allow other windows above it. It does not force keyboard focus back to itself.
+The workspace groups its controls in a sidebar beside the image and shows selection dimensions in pixels. **Manter no topo** is enabled by default so changing application focus does not cover the selector; turn it off to allow other windows above it. It does not force keyboard focus back to itself.
+
+## Project organization and sidebar (0.7)
+
+New screenshots use `<destination>/<project>/<app>/<capture-id>/screenshot.png`
+with `evidence.json` beside the PNG. The capture ID retains the timestamp + UUID
+format. Set **Projeto** in the sidebar or `case_id` in capture tool arguments.
+Without a project, the folder is `sem-projeto`. Simple lowercase project IDs such
+as `cliente-a` remain readable; names needing normalization receive a short hash
+suffix to distinguish them. The original case ID stays in the evidence metadata.
+
+Lookup, review and export still support original flat evidence, app-first folders,
+and ID-first folders. Existing files are not moved.
+
+The resizable workspace uses a compact sidebar and a proportional preview. The
+selection stays anchored to the image when resizing the workspace. **Capturar e
+salvar** is the primary action (Return); **Salvar apenas a seleção** confirms the
+region/profile without creating a screenshot. The sidebar scrolls on small screens.

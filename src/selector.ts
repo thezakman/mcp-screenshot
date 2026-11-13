@@ -19,6 +19,7 @@ const actionSchema = z.object({
   ]),
   name: z.string().optional(),
   draft_name: z.string().optional(),
+  case_id: z.string().max(120).optional(),
   new_name: z.string().optional(),
   destination: z.string().optional(),
   target: z.string().optional(),
@@ -27,6 +28,7 @@ const actionSchema = z.object({
 export async function runSelector(
   service: CaptureService,
   initial: {
+    case_id?: string;
     window_id?: number;
     app_name?: string;
     title?: string;
@@ -41,6 +43,7 @@ export async function runSelector(
   let error: string | undefined;
   let draft: unknown;
   let draftName = initial.name ?? "";
+  let project = initial.case_id ?? "";
   for (let iteration = 0; iteration < 100; iteration++) {
     signal.throwIfAborted();
     const windows = await service.windows();
@@ -70,6 +73,7 @@ export async function runSelector(
       profiles: compatible,
       all_profiles: await profiles.list(),
       name: draftName,
+      case_id: project,
       initial_region:
         draft ?? compatible.find((p) => p.name === draftName)?.region,
       error,
@@ -89,6 +93,7 @@ export async function runSelector(
       await selectRegion(Buffer.from(result.image, "base64"), signal, context),
     );
     error = undefined;
+    if (action.case_id !== undefined) project = action.case_id.trim();
     if (action.region) draft = action.region;
     if (action.draft_name !== undefined) draftName = action.draft_name;
     if (
@@ -163,6 +168,7 @@ export async function runSelector(
             ...(await service.capture(
               {
                 ...target,
+                case_id: project || undefined,
                 name: undefined,
                 profile: undefined,
                 region,

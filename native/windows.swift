@@ -25,82 +25,98 @@ do {
         let config = (try? Data(contentsOf: URL(fileURLWithPath: configPath))).flatMap { try? JSONSerialization.jsonObject(with:$0) as? [String:Any] } ?? [:]
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
-        let size = image.size
         let screen = NSScreen.main!.visibleFrame
-        let scale = min(1, min((screen.width - 80) / size.width, (screen.height - 200) / size.height))
-        let canvas = NSRect(x: 0, y: 0, width: size.width * scale, height: size.height * scale)
-        let rect = NSRect(x:0,y:0,width:max(900,canvas.width),height:canvas.height)
-        let window = SelectionWindow(contentRect: NSRect(x: 0, y: 0, width: rect.width, height: rect.height + 144), styleMask: [.titled], backing: .buffered, defer: false)
-        window.title = "Captura — região, perfis e destino"
-        window.hidesOnDeactivate = false
-        window.level = .floating
+        let size = NSSize(width:min(1280,screen.width-80),height:min(820,screen.height-100))
+        let window = SelectionWindow(contentRect:NSRect(origin:.zero,size:size),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
+        window.title = "Captura"
+        window.minSize=NSSize(width:860,height:560)
+        window.hidesOnDeactivate=false; window.level = .floating
         window.collectionBehavior = [.fullScreenAuxiliary]
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: rect.width, height: rect.height + 144))
-        let region = RegionView(frame: NSRect(x: (rect.width-canvas.width)/2, y: 0, width: canvas.width, height: canvas.height), image: image)
-        region.configuration = config
-        container.addSubview(region)
-        let all = NSButton(title: "Selecionar tudo", target: region, action: #selector(RegionView.selectAllImage))
-        all.frame = NSRect(x:110,y:5,width:140,height:30); container.addSubview(all)
-        let settings = NSButton(title: "Configurações…", target: region, action: #selector(RegionView.settings))
-        settings.frame = NSRect(x:260,y:5,width:150,height:30); container.addSubview(settings)
-        let capture = NSButton(title: "Capturar e salvar", target:region,action:#selector(RegionView.captureSelection))
-        region.captureButton=capture
-        capture.isEnabled=false
-        capture.toolTip="Captura o conteúdo atual e salva PNG e JSON na pasta de destino."
-        capture.frame = NSRect(x:rect.width-450,y:5,width:165,height:30); container.addSubview(capture)
-        let names = NSPopUpButton(frame:NSRect(x:12,y:76,width:260,height:28))
-        names.addItem(withTitle:"Perfil: seleção manual")
-        for profile in config["profiles"] as? [[String:Any]] ?? [] { names.addItem(withTitle:profile["name"] as? String ?? "") }
-        if let current=config["name"] as? String, names.itemTitles.contains(current) { names.selectItem(withTitle:current) }
-        names.target=region; names.action=#selector(RegionView.loadProfile(_:)); container.addSubview(names)
-        let name = NSTextField(frame:NSRect(x:285,y:76,width:280,height:26))
-        name.placeholderString="Nome para novo perfil (opcional)"; name.stringValue=config["name"] as? String ?? ""
-        region.nameField=name; container.addSubview(name)
-        let targets=NSPopUpButton(frame:NSRect(x:12,y:110,width:rect.width-24,height:28))
+        let container=NSView(frame:NSRect(origin:.zero,size:size))
+        let region=RegionView(frame:NSRect(x:0,y:0,width:image.size.width,height:image.size.height),image:image)
+        region.configuration=config
+        window.delegate=region
+        let preview=PreviewPane(region:region)
+        preview.translatesAutoresizingMaskIntoConstraints=false
+        container.addSubview(preview)
+        let sidebar=NSScrollView()
+        sidebar.translatesAutoresizingMaskIntoConstraints=false
+        sidebar.hasVerticalScroller=true; sidebar.autohidesScrollers=true
+        sidebar.drawsBackground=true; sidebar.backgroundColor = .windowBackgroundColor
+        container.addSubview(sidebar)
+        NSLayoutConstraint.activate([
+            sidebar.leadingAnchor.constraint(equalTo:container.leadingAnchor),sidebar.topAnchor.constraint(equalTo:container.topAnchor),sidebar.bottomAnchor.constraint(equalTo:container.bottomAnchor),sidebar.widthAnchor.constraint(equalToConstant:320),
+            preview.leadingAnchor.constraint(equalTo:sidebar.trailingAnchor),preview.trailingAnchor.constraint(equalTo:container.trailingAnchor),preview.topAnchor.constraint(equalTo:container.topAnchor),preview.bottomAnchor.constraint(equalTo:container.bottomAnchor)
+        ])
+        let document=FlippedView()
+        document.translatesAutoresizingMaskIntoConstraints=false
+        sidebar.documentView=document
+        document.widthAnchor.constraint(equalTo:sidebar.contentView.widthAnchor).isActive=true
+        let stack=NSStackView()
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing=10
+        stack.translatesAutoresizingMaskIntoConstraints=false; document.addSubview(stack)
+        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo:document.leadingAnchor,constant:18),stack.trailingAnchor.constraint(equalTo:document.trailingAnchor,constant:-18),stack.topAnchor.constraint(equalTo:document.topAnchor,constant:20),stack.bottomAnchor.constraint(equalTo:document.bottomAnchor,constant:-20)])
+        func label(_ text:String,_ size:CGFloat=12,_ weight:NSFont.Weight = .regular) -> NSTextField {
+            let field=NSTextField(wrappingLabelWithString:text); field.font = .systemFont(ofSize:size,weight:weight); return field
+        }
+        func add(_ view:NSView) { stack.addArrangedSubview(view); view.widthAnchor.constraint(equalTo:stack.widthAnchor).isActive=true }
+        func section(_ title:String,_ control:NSView) {
+            let heading=label(title,11,.semibold); heading.textColor = .secondaryLabelColor
+            add(heading); stack.setCustomSpacing(4,after:heading); add(control)
+        }
+        func button(_ title:String,_ action:Selector) -> NSButton {
+            let control=NSButton(title:title,target:region,action:action); control.bezelStyle = .rounded
+            control.controlSize = .large; control.heightAnchor.constraint(equalToConstant:34).isActive=true; return control
+        }
+        add(label("Nova captura",22,.semibold))
+        let subtitle=label("Escolha a origem, ajuste a região e salve.",12); subtitle.textColor = .secondaryLabelColor; add(subtitle); stack.setCustomSpacing(18,after:subtitle)
+        let targets=NSPopUpButton()
+        targets.lineBreakMode = .byTruncatingMiddle
         for target in config["targets"] as? [[String:Any]] ?? [] {
             targets.addItem(withTitle:target["title"] as? String ?? "")
             targets.lastItem?.representedObject=target["id"]
             if target["id"] as? String == config["current_target"] as? String { targets.select(targets.lastItem) }
         }
-        targets.target=region; targets.action=#selector(RegionView.changeTarget(_:)); container.addSubview(targets)
-        let destination=NSTextField(labelWithString:"Destino: \(config["destination"] as? String ?? "")")
-        destination.frame=NSRect(x:12,y:54,width:rect.width-24,height:20); destination.lineBreakMode = .byTruncatingMiddle; container.addSubview(destination)
-        let hint = NSTextField(labelWithString: "Arraste para selecionar. Mova pelo centro; ajuste pelas bordas.")
-        hint.frame = NSRect(x: 12, y: 38, width: rect.width - 24, height: 20)
-        hint.textColor = .secondaryLabelColor
-        hint.font = .systemFont(ofSize:11)
-        region.statusLabel=hint
-        container.addSubview(hint)
-        let cancel = NSButton(title: "Cancelar", target: region, action: #selector(RegionView.cancelSelection))
-        cancel.frame = NSRect(x: rect.width - 280, y: 5, width: 100, height: 30)
-        cancel.keyEquivalent = "\u{1b}"
-        container.addSubview(cancel)
-        let save = NSButton(title: "Confirmar seleção", target: region, action: #selector(RegionView.confirmSelection))
-        save.frame = NSRect(x: rect.width - 170, y: 5, width: 158, height: 30)
-        save.keyEquivalent = "\r"
-        save.toolTip="Confirma a região e salva o perfil nomeado. Não salva um screenshot."
-        save.isEnabled = false
-        region.confirmButton = save
-        if let r=config["initial_region"] as? [String:Double], let x=r["x"], let y=r["y"], let w=r["width"], let h=r["height"] {
-            region.selection=NSRect(x:x*region.bounds.width,y:(1-y-h)*region.bounds.height,width:w*region.bounds.width,height:h*region.bounds.height); region.refresh()
-        }
-        container.addSubview(save)
-        let reset = NSButton(title: "Refazer", target: region, action: #selector(RegionView.resetSelection))
-        reset.frame = NSRect(x: 12, y: 5, width: 90, height: 30)
-        container.addSubview(reset)
-        let pin=NSButton(checkboxWithTitle:"Manter no topo",target:region,action:#selector(RegionView.togglePinned(_:)))
-        pin.state = .on; pin.frame=NSRect(x:rect.width-175,y:76,width:160,height:26); container.addSubview(pin)
-        names.toolTip="Perfis compatíveis com o aplicativo e as dimensões desta janela."
-        targets.toolTip="Escolha a janela ou o monitor que será capturado."
-        name.toolTip="Use letras minúsculas, números e hífens. Deixe vazio para não salvar perfil."
-        destination.toolTip=config["destination"] as? String
-        all.toolTip="Seleciona a imagem inteira do alvo atual. Para tela inteira, escolha um monitor."
-        for control in container.subviews where control !== region {
-            control.frame.origin.y += canvas.height
-            if let button=control as? NSButton, !(button is NSPopUpButton), button !== pin { button.bezelStyle = .rounded }
+        targets.target=region; targets.action=#selector(RegionView.changeTarget(_:))
+        targets.toolTip="Janela ou monitor de origem"; section("ORIGEM",targets)
+        let names=NSPopUpButton()
+        names.addItem(withTitle:"Seleção livre")
+        for profile in config["profiles"] as? [[String:Any]] ?? [] { names.addItem(withTitle:profile["name"] as? String ?? "") }
+        if let current=config["name"] as? String,names.itemTitles.contains(current) {names.selectItem(withTitle:current)}
+        names.target=region; names.action=#selector(RegionView.loadProfile(_:)); section("CARREGAR PERFIL",names)
+        let name=NSTextField()
+        name.placeholderString="Opcional · ex.: burp-response"; name.stringValue=config["name"] as? String ?? ""
+        name.heightAnchor.constraint(equalToConstant:28).isActive=true; region.nameField=name
+        name.toolTip="Nome para salvar a seleção. Use letras minúsculas, números e hífens."; section("SALVAR SELEÇÃO COMO",name)
+        let all=button("Imagem inteira",#selector(RegionView.selectAllImage))
+        let reset=button("Limpar região",#selector(RegionView.resetSelection))
+        let row=NSStackView(views:[all,reset]); row.orientation = .horizontal; row.distribution = .fillEqually; row.spacing=8
+        add(row)
+        let status=label("Desenhe uma região",13,.medium); region.statusLabel=status; add(status)
+        let instructions=label("Arraste o centro para mover e as alças para redimensionar. Setas ajustam a posição; Shift aumenta o passo.",11)
+        instructions.textColor = .secondaryLabelColor; add(instructions); stack.setCustomSpacing(18,after:instructions)
+        let project=NSTextField()
+        project.placeholderString="sem-projeto"; project.stringValue=config["case_id"] as? String ?? ""
+        project.heightAnchor.constraint(equalToConstant:28).isActive=true; region.projectField=project
+        section("PROJETO",project)
+        let destination=NSTextField(labelWithString:config["destination"] as? String ?? "")
+        destination.lineBreakMode = .byTruncatingMiddle; destination.font = .systemFont(ofSize:11); destination.toolTip=destination.stringValue
+        section("PASTA BASE",destination)
+        let structure=label("Projeto → aplicativo → captura",11); structure.textColor = .secondaryLabelColor; add(structure)
+        let settings=button("Pasta e gerenciamento de perfis…",#selector(RegionView.settings)); add(settings)
+        let pin=NSButton(checkboxWithTitle:"Manter janela no topo",target:region,action:#selector(RegionView.togglePinned(_:)))
+        pin.state = .on; add(pin); stack.setCustomSpacing(20,after:pin)
+        let capture=button("Capturar e salvar",#selector(RegionView.captureSelection))
+        capture.keyEquivalent="\r"; capture.toolTip="Faz uma nova captura e salva o screenshot na pasta de destino."; region.captureButton=capture; add(capture)
+        let save=button("Salvar apenas a seleção",#selector(RegionView.confirmSelection))
+        save.toolTip="Confirma a região e salva o perfil nomeado, sem criar screenshot."; region.confirmButton=save; add(save)
+        let cancel=button("Cancelar",#selector(RegionView.cancelSelection)); cancel.keyEquivalent="\u{1b}"; add(cancel)
+        if let r=config["initial_region"] as? [String:Double],let x=r["x"],let y=r["y"],let w=r["width"],let h=r["height"] {
+            region.selection=NSRect(x:x*region.bounds.width,y:(1-y-h)*region.bounds.height,width:w*region.bounds.width,height:h*region.bounds.height)
         }
         region.refresh()
-        window.contentView = container
+        window.contentView=container
+        container.layoutSubtreeIfNeeded()
         window.center()
         window.makeKeyAndOrderFront(nil)
         app.activate(ignoringOtherApps: true)
@@ -159,10 +175,11 @@ final class SelectionWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 }
-final class RegionView: NSView {
+final class RegionView: NSView, NSWindowDelegate {
     let image: NSImage
     var configuration: [String:Any] = [:]
     weak var nameField: NSTextField?
+    weak var projectField: NSTextField?
     var start = NSPoint.zero
     var original = NSRect.zero
     var selection = NSRect.zero
@@ -176,6 +193,16 @@ final class RegionView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     init(frame: NSRect, image: NSImage) { self.image = image; super.init(frame: frame) }
     required init?(coder: NSCoder) { fatalError() }
+    func windowShouldClose(_ sender:NSWindow) -> Bool { cancelSelection(); return false }
+    override func setFrameSize(_ newSize:NSSize) {
+        let previous=bounds.size
+        let hadSelection=selection.width>0 && selection.height>0
+        super.setFrameSize(newSize)
+        if hadSelection && previous.width>0 && previous.height>0 {
+            selection=NSRect(x:selection.minX*newSize.width/previous.width,y:selection.minY*newSize.height/previous.height,width:selection.width*newSize.width/previous.width,height:selection.height*newSize.height/previous.height)
+        }
+        refresh()
+    }
     var valid: Bool { selection.width >= 2 && selection.height >= 2 }
     func refresh() {
         needsDisplay = true; confirmButton?.isEnabled = valid; captureButton?.isEnabled = valid
@@ -183,8 +210,8 @@ final class RegionView: NSView {
             let cg=image.cgImage(forProposedRect:nil,context:nil,hints:nil)
             let w=Int((selection.width/bounds.width*CGFloat(cg?.width ?? Int(image.size.width))).rounded())
             let h=Int((selection.height/bounds.height*CGFloat(cg?.height ?? Int(image.size.height))).rounded())
-            statusLabel?.stringValue="Seleção: \(w) × \(h) px · Arraste o centro para mover; use as alças para ajustar. Setas: precisão; Shift: passo maior."
-        } else { statusLabel?.stringValue="Arraste sobre a imagem ou escolha Selecionar tudo. A prévia é congelada; Capturar e salvar faz uma nova captura." }
+            statusLabel?.stringValue="\(w) × \(h) pixels selecionados"
+        } else { statusLabel?.stringValue="Nenhuma região selecionada" }
     }
     var handles: [NSPoint] {
         [NSPoint(x:selection.minX,y:selection.minY),NSPoint(x:selection.midX,y:selection.minY),NSPoint(x:selection.maxX,y:selection.minY),
@@ -244,6 +271,7 @@ final class RegionView: NSView {
     func finish(_ value:[String:Any]) {
         var response=value
         response["draft_name"] = nameField?.stringValue ?? ""
+        response["case_id"] = projectField?.stringValue ?? ""
         if valid && response["region"] == nil {response["region"]=selectedRegion()}
         do { try emit(response); exit(0) }
         catch { FileHandle.standardError.write(Data("Could not return selection\n".utf8)); exit(1) }
@@ -311,5 +339,27 @@ final class RegionView: NSView {
             refresh(); return
         }
         super.keyDown(with:event)
+    }
+}
+
+final class FlippedView:NSView { override var isFlipped:Bool {true} }
+final class PreviewPane:NSView {
+    let region:RegionView
+    let caption=NSTextField(labelWithString:"PRÉVIA  ·  Imagem congelada")
+    init(region:RegionView) {
+        self.region=region; super.init(frame:.zero)
+        wantsLayer=true; layer?.backgroundColor=NSColor(calibratedWhite:0.09,alpha:1).cgColor
+        caption.font = .systemFont(ofSize:11,weight:.semibold); caption.textColor = .lightGray
+        addSubview(caption); addSubview(region)
+    }
+    required init?(coder:NSCoder) {fatalError()}
+    override func layout() {
+        super.layout()
+        caption.frame=NSRect(x:24,y:bounds.height-34,width:max(1,bounds.width-48),height:18)
+        let available=NSSize(width:max(1,bounds.width-48),height:max(1,bounds.height-80))
+        let size=region.image.size
+        let scale=min(available.width/size.width,available.height/size.height)
+        let fitted=NSSize(width:size.width*scale,height:size.height*scale)
+        region.frame=NSRect(x:(bounds.width-fitted.width)/2,y:20+(available.height-fitted.height)/2,width:fitted.width,height:fitted.height)
     }
 }

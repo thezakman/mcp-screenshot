@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0
+
+- Redesign capture controls into a compact sidebar beside a proportional preview, with a resizable window and explicit action hierarchy.
+- Preserve normalized selection geometry when resizing the workspace.
+- Organize new evidence by project/app/capture-ID using case_id, with sem-projeto as the default.
+- Retain read/review/export compatibility with previous directory layouts and add project-storage regression tests.
+
 ## 0.6.1
 
 - Keep the capture workspace above other applications by default, with a visible toggle and no hiding on deactivation.

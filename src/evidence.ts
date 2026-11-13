@@ -64,6 +64,19 @@ export interface Evidence extends CaptureMetadata {
   association: "caller_supplied_unverified" | "none";
   image: string;
 }
+export function projectFolder(caseId?: string) {
+  if (!caseId?.trim()) return "sem-projeto";
+  const value = caseId.trim();
+  const slug =
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 70) || "projeto";
+  if (slug === value && !["sem-projeto", "profiles", "exports"].includes(slug))
+    return slug;
+  return `${slug}-${createHash("sha256").update(value).digest("hex").slice(0, 10)}`;
+}
 export class EvidenceStore {
   root: string;
   constructor(root = configuredRoot()) {
@@ -108,14 +121,16 @@ export class EvidenceStore {
               .replace(/[^a-z0-9]+/g, "-")
               .replace(/^-|-$/g, "")
               .slice(0, 80) || "application";
-    const folder = join(
-      root,
-      ["profiles", "exports"].includes(slug) ? `${slug}-app` : slug,
-    );
+    const project = projectFolder(context.case_id);
+    const folder = join(root, project, slug);
+    await mkdir(join(root, project), { recursive: true, mode: 0o700 });
+    await assertDirectory(join(root, project));
     await mkdir(folder, { recursive: true, mode: 0o700 });
     await assertDirectory(folder);
     const temp = await mkdtemp(join(folder, ".pending-"));
-    const dir = join(folder, id);
+    const stagedApp = temp;
+    const destination = join(folder, id);
+    const dir = destination;
     const evidence: Evidence = {
       ...meta,
       schema_version: 1,
@@ -126,17 +141,18 @@ export class EvidenceStore {
     };
     try {
       manifestSchema.parse(evidence);
-      await writeFile(join(temp, evidence.image), data, {
+
+      await writeFile(join(stagedApp, evidence.image), data, {
         flag: "wx",
         mode: 0o600,
       });
       await writeFile(
-        join(temp, "evidence.json"),
+        join(stagedApp, "evidence.json"),
         JSON.stringify(evidence, null, 2) + "\n",
         { flag: "wx", mode: 0o600 },
       );
       // Publish the PNG + sidecar together. Readers never see a half-written evidence item.
-      await rename(temp, dir);
+      await rename(temp, destination);
     } catch (error) {
       await rm(temp, { recursive: true, force: true });
       throw error;
@@ -149,21 +165,34 @@ export class EvidenceStore {
   }
   private async locations(root: string) {
     const result = new Map<string, string>();
-    for (const entry of await readdir(root, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      if (ID_PATTERN.test(entry.name))
-        result.set(entry.name, join(root, entry.name));
-      else if (
-        /^[a-z0-9][a-z0-9-]*$/.test(entry.name) &&
-        !["profiles", "exports"].includes(entry.name)
-      ) {
-        for (const child of await readdir(join(root, entry.name), {
-          withFileTypes: true,
-        }))
-          if (child.isDirectory() && ID_PATTERN.test(child.name))
-            result.set(child.name, join(root, entry.name, child.name));
+    // Bounded depth covers flat, app/ID, ID/app, and project/app/ID layouts.
+    const visit = async (directory: string, depth: number) => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+        const path = join(directory, entry.name);
+        if (ID_PATTERN.test(entry.name)) {
+          const children = await readdir(path, { withFileTypes: true });
+          if (children.some((c) => c.isFile() && c.name === "evidence.json"))
+            result.set(entry.name, path);
+          else {
+            const apps = children.filter(
+              (c) => c.isDirectory() && /^[a-z0-9][a-z0-9-]*$/.test(c.name),
+            );
+            result.set(
+              entry.name,
+              apps.length === 1 ? join(path, apps[0].name) : path,
+            );
+          }
+        } else if (
+          depth < 2 &&
+          /^[a-z0-9][a-z0-9-]*$/.test(entry.name) &&
+          !(depth === 0 && ["profiles", "exports"].includes(entry.name))
+        ) {
+          await visit(path, depth + 1);
+        }
       }
-    }
+    };
+    await visit(root, 0);
     return result;
   }
   private validId(id: string) {

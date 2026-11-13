@@ -64,7 +64,9 @@ it("exports originals, verified metadata, review history and an offline gallery"
   expect(manifest.evidence[0].path).toBeUndefined();
   expect(
     await readFile(join(result.path, "evidence", id, "reviews", "0001.json")),
-  ).toEqual(await readFile(join(root, "desktop", id, "reviews", "0001.json")));
+  ).toEqual(
+    await readFile(join(root, "local", "desktop", id, "reviews", "0001.json")),
+  );
 });
 it("does not publish a partial package when a source fails integrity checks", async () => {
   const item = await store.get(id);

@@ -387,6 +387,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
         "Open the capture workspace with a window/display preview, saved profiles, target selection, full-image selection and settings. Confirm returns a region and optionally creates a profile; Capture and save persists evidence. Each interactive step expires after 300 seconds.",
       inputSchema: {
         ...windowFields,
+        case_id: z.string().trim().max(120).optional(),
         display: z.number().int().positive().optional(),
         name: profileName.optional(),
       },
