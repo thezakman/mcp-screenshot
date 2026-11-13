@@ -105,12 +105,25 @@ do {
         let structure=label("Projeto → aplicativo → captura",11); structure.textColor = .secondaryLabelColor; add(structure)
         let settings=button("Pasta e gerenciamento de perfis…",#selector(RegionView.settings)); add(settings)
         let pin=NSButton(checkboxWithTitle:"Manter janela no topo",target:region,action:#selector(RegionView.togglePinned(_:)))
-        pin.state = .on; add(pin); stack.setCustomSpacing(20,after:pin)
+        pin.state = .on
+        stack.setCustomSpacing(20,after:settings)
         let capture=button("Capturar e salvar",#selector(RegionView.captureSelection))
         capture.keyEquivalent="\r"; capture.toolTip="Faz uma nova captura e salva o screenshot na pasta de destino."; region.captureButton=capture; add(capture)
         let save=button("Salvar apenas a seleção",#selector(RegionView.confirmSelection))
         save.toolTip="Confirma a região e salva o perfil nomeado, sem criar screenshot."; region.confirmButton=save; add(save)
         let cancel=button("Cancelar",#selector(RegionView.cancelSelection)); cancel.keyEquivalent="\u{1b}"; add(cancel)
+        stack.setCustomSpacing(16,after:cancel)
+        let pinRow=NSView()
+        pin.translatesAutoresizingMaskIntoConstraints=false
+        pinRow.addSubview(pin)
+        NSLayoutConstraint.activate([
+            pin.centerXAnchor.constraint(equalTo:pinRow.centerXAnchor),
+            pin.topAnchor.constraint(equalTo:pinRow.topAnchor),
+            pin.bottomAnchor.constraint(equalTo:pinRow.bottomAnchor),
+            pin.leadingAnchor.constraint(greaterThanOrEqualTo:pinRow.leadingAnchor),
+            pin.trailingAnchor.constraint(lessThanOrEqualTo:pinRow.trailingAnchor)
+        ])
+        add(pinRow)
         if let r=config["initial_region"] as? [String:Double],let x=r["x"],let y=r["y"],let w=r["width"],let h=r["height"] {
             region.selection=NSRect(x:x*region.bounds.width,y:(1-y-h)*region.bounds.height,width:w*region.bounds.width,height:h*region.bounds.height)
         }
