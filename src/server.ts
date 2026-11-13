@@ -1,3 +1,11 @@
+import {
+  ProfileStore,
+  profileSchema,
+  profileName,
+  regionSchema,
+  selectRegion,
+} from "./regions.js";
+import { native } from "./native.js";
 import { reviewInput, reviewStatus } from "./reviews.js";
 import { exportEvidence } from "./export.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -8,6 +16,16 @@ import { windowToken } from "./native.js";
 import { failure } from "./errors.js";
 const detailField = z.enum(["summary", "full"]).default("summary");
 const evidenceFields = {
+  region: regionSchema
+    .optional()
+    .describe(
+      "Normalized image region, top-left origin. Explicit crop; never falls back to full image.",
+    ),
+  profile: profileName
+    .optional()
+    .describe(
+      "Saved region profile; requires matching app and window dimensions.",
+    ),
   detail: detailField,
   persist: z
     .boolean()
@@ -324,6 +342,120 @@ export function createServer(service = new CaptureService(), version = "dev") {
           ),
         ),
       ),
+  );
+  const profiles = new ProfileStore(service.store.root);
+  server.registerTool(
+    "save_capture_profile",
+    {
+      description:
+        "Create an immutable named geometric profile from explicit normalized coordinates and reference window dimensions. Existing names are never overwritten.",
+      inputSchema: profileSchema.shape,
+      annotations: captureAnnotations,
+    },
+    (args) => guarded(async () => textResult(await profiles.save(args))),
+  );
+  server.registerTool(
+    "list_capture_profiles",
+    {
+      description:
+        "List saved geometric region profiles. Layout changes require recalibration.",
+      inputSchema: {},
+      annotations: readAnnotations,
+    },
+    () => guarded(async () => textResult({ profiles: await profiles.list() })),
+  );
+  server.registerTool(
+    "delete_capture_profile",
+    {
+      description:
+        "Delete a named region profile; saved evidence remains unchanged.",
+      inputSchema: { name: profileName },
+      annotations: { ...captureAnnotations, destructiveHint: true },
+    },
+    (args) =>
+      guarded(async () => {
+        await profiles.delete(args.name);
+        return textResult({ deleted: args.name });
+      }),
+  );
+  server.registerTool(
+    "select_capture_region",
+    {
+      description:
+        "Open a frozen window/display preview. Drag a region, Enter confirms, Escape cancels. Times out after 120 seconds. Optionally save an immutable named window profile. No evidence is persisted. Use a new name to recalibrate, or delete the old profile first.",
+      inputSchema: {
+        ...windowFields,
+        display: z.number().int().positive().optional(),
+        name: profileName.optional(),
+      },
+      annotations: captureAnnotations,
+    },
+    (args, extra) =>
+      guarded(async () => {
+        if (
+          args.display &&
+          (args.window_id || args.app_name || args.title || args.name)
+        )
+          throw new Error("Choose a window profile or a display selection.");
+        const result = await service.capture(
+          {
+            ...args,
+            persist: false,
+            include_image: true,
+          },
+          extra.signal,
+        );
+        if (!result.image) throw new Error("Preview unavailable");
+        const region = await selectRegion(
+          Buffer.from(result.image, "base64"),
+          extra.signal,
+        );
+        const w = result.metadata.window;
+        const profile =
+          args.name && w
+            ? await profiles.save({
+                name: args.name,
+                version: 1,
+                app: w.bundleId || w.app,
+                width: w.bounds.width,
+                height: w.bounds.height,
+                region,
+              })
+            : undefined;
+        return textResult({
+          region,
+          profile,
+          window: w,
+          display: args.display,
+          note: "Geometric selection only. Capture again using region or profile; panel content is not recognized.",
+        });
+      }),
+  );
+  server.registerTool(
+    "capture_frontmost_window",
+    {
+      description:
+        "Capture the frontmost application's unique visible window. Multiple windows require explicit selection.",
+      inputSchema: evidenceFields,
+      annotations: captureAnnotations,
+    },
+    (args, extra) =>
+      guarded(async () => {
+        const { pid } = await native<{ pid: number }>("frontmost");
+        const windows = (await service.windows()).filter((w) => w.pid === pid);
+        if (windows.length !== 1)
+          throw new Error(
+            "AMBIGUOUS_WINDOW: select an explicit window with list_windows.",
+          );
+        return captureResult(
+          {
+            ...args,
+            window_id: windows[0].id,
+            expected_window_token: windowToken(windows[0]),
+          },
+          extra.signal,
+        );
+      }),
   );
   return server;
 }

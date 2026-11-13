@@ -39,6 +39,12 @@ export interface EvidenceContext {
   tags?: string[];
 }
 export interface CaptureMetadata {
+  crop?: {
+    region: import("./regions.js").Region;
+    source_width: number;
+    source_height: number;
+    profile?: string;
+  };
   captured_at: string;
   width: number;
   height: number;
@@ -89,8 +95,26 @@ export class EvidenceStore {
       );
     const root = await this.rootPath(true);
     const id = `${meta.captured_at.replace(/[:.]/g, "-")}_${randomUUID()}`;
-    const temp = await mkdtemp(join(root, ".pending-"));
-    const dir = join(root, id);
+    const app = meta.window?.app ?? "desktop";
+    const slug = /burp/i.test(app)
+      ? "burp-suite"
+      : /chrome/i.test(app)
+        ? "chrome"
+        : /iterm/i.test(app)
+          ? "iterm2"
+          : app
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/^-|-$/g, "")
+              .slice(0, 80) || "application";
+    const folder = join(
+      root,
+      ["profiles", "exports"].includes(slug) ? `${slug}-app` : slug,
+    );
+    await mkdir(folder, { recursive: true, mode: 0o700 });
+    await assertDirectory(folder);
+    const temp = await mkdtemp(join(folder, ".pending-"));
+    const dir = join(folder, id);
     const evidence: Evidence = {
       ...meta,
       schema_version: 1,
@@ -122,6 +146,25 @@ export class EvidenceStore {
       manifest_path: join(dir, "evidence.json"),
     };
   }
+  private async locations(root: string) {
+    const result = new Map<string, string>();
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (ID_PATTERN.test(entry.name))
+        result.set(entry.name, join(root, entry.name));
+      else if (
+        /^[a-z0-9][a-z0-9-]*$/.test(entry.name) &&
+        !["profiles", "exports"].includes(entry.name)
+      ) {
+        for (const child of await readdir(join(root, entry.name), {
+          withFileTypes: true,
+        }))
+          if (child.isDirectory() && ID_PATTERN.test(child.name))
+            result.set(child.name, join(root, entry.name, child.name));
+      }
+    }
+    return result;
+  }
   private validId(id: string) {
     if (!ID_PATTERN.test(id))
       throw new ScreenshotError(
@@ -137,7 +180,7 @@ export class EvidenceStore {
   ) {
     this.validId(id);
     const root = await this.rootPath(),
-      directory = join(root, id);
+      directory = (await this.locations(root)).get(id) ?? join(root, id);
     await assertDirectory(directory);
     const manifestPath = join(directory, "evidence.json");
     const manifestBytes = await readBounded(manifestPath, 64 * 1024);
@@ -268,9 +311,8 @@ export class EvidenceStore {
         integrity: "not_checked_use_get_evidence",
       };
     }
-    const entries = (await readdir(root, { withFileTypes: true }))
-      .filter((d) => d.isDirectory() && ID_PATTERN.test(d.name))
-      .map((d) => d.name)
+    const locations = await this.locations(root);
+    const entries = [...locations.keys()]
       .sort()
       .filter((id) => !options.after || id > options.after);
     const items: {
@@ -293,7 +335,7 @@ export class EvidenceStore {
       cursor = id;
       try {
         this.validId(id);
-        const dir = join(root, id);
+        const dir = locations.get(id)!;
         await assertDirectory(dir);
         const item = parseManifest(
           await readBounded(join(dir, "evidence.json"), 64 * 1024),

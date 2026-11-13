@@ -13,7 +13,7 @@ try {
     }),
   );
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 11);
+  assert.equal(tools.length, 16);
   assert.ok(tools.some((t) => t.name === "capture_burp_screenshot"));
   assert.ok(
     tools
@@ -25,7 +25,7 @@ try {
       )
       .every((t) => t.annotations.readOnlyHint === false),
   );
-  console.log("stdio handshake and 11 tool schemas verified");
+  console.log("stdio handshake and 16 tool schemas verified");
 } finally {
   await client.close();
 }

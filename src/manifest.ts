@@ -1,3 +1,4 @@
+import { regionSchema } from "./regions.js";
 import { z } from "zod";
 import { ScreenshotError } from "./errors.js";
 export const evidenceId = z
@@ -18,6 +19,14 @@ export const boundsSchema = z.object({
 });
 export const manifestSchema = z
   .object({
+    crop: z
+      .object({
+        region: regionSchema,
+        source_width: z.number().int().positive(),
+        source_height: z.number().int().positive(),
+        profile: z.string().optional(),
+      })
+      .optional(),
     schema_version: z.literal(1),
     id: evidenceId,
     context: contextSchema,

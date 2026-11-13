@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+- Add normalized crops, frozen native region selection, persistent named profiles, and foreground-app capture.
+- Organize new evidence by application while retaining legacy lookup, reviews and exports.
+- Record crop geometry and source dimensions; reject incompatible profiles without full-window fallback.
+- Add profile persistence, geometry and legacy-storage regression coverage.
+
 ## 0.4.0 — 2026-10-08
 
 - Add `review_evidence`: append-only screenshot-quality reviews, explicit reviewer attribution, and optimistic revision conflicts.

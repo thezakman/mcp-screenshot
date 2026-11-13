@@ -1,3 +1,4 @@
+import { ProfileStore } from "../src/regions.js";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -92,4 +93,20 @@ it("rejects a reused OS window ID using the selection token without capturing", 
     service.capture({ window_id: WINDOW.id, expected_window_token: token }),
   ).rejects.toThrow("changed since list_windows");
   expect(backend.capture).not.toHaveBeenCalled();
+});
+
+it("rejects mismatched profile dimensions before capturing or saving", async () => {
+  await new ProfileStore(root).save({
+    name: "response",
+    version: 1,
+    app: WINDOW.bundleId,
+    width: 900,
+    height: 600,
+    region: { x: 0, y: 0, width: 1, height: 1 },
+  });
+  await expect(
+    service.capture({ window_id: 42, profile: "response" }),
+  ).rejects.toThrow("PROFILE_MISMATCH");
+  expect(backend.capture).not.toHaveBeenCalled();
+  expect((await service.store.list()).items).toHaveLength(0);
 });

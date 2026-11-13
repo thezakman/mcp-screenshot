@@ -25,7 +25,12 @@ export interface CaptureStatus {
   screenRecording: boolean;
   accessibility: boolean;
 }
-export async function native<T>(command: string): Promise<T> {
+export async function native<T>(
+  command: string,
+  args: string[] = [],
+  timeout = 5_000,
+  signal?: AbortSignal,
+): Promise<T> {
   if (process.platform !== "darwin")
     throw new Error("UNSUPPORTED_PLATFORM: mcp-screenshot requires macOS.");
   const path = fileURLToPath(new URL("./native/windows", import.meta.url));
@@ -33,8 +38,9 @@ export async function native<T>(command: string): Promise<T> {
     throw new Error(
       "HELPER_MISSING: run npm run build on this Mac (Xcode Command Line Tools required).",
     );
-  const { stdout } = await exec(path, [command], {
-    timeout: 5_000,
+  const { stdout } = await exec(path, [command, ...args], {
+    timeout,
+    signal,
     maxBuffer: 4 * 1024 * 1024,
   });
   return JSON.parse(stdout) as T;

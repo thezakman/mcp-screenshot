@@ -64,14 +64,14 @@ it("does not overwrite a concurrently written revision", async () => {
 it("detects a broken review hash chain", async () => {
   await store.review(id, review);
   await store.review(id, { ...review, expected_revision: 1 });
-  const path = join(root, id, "reviews", "0001.json");
+  const path = join(root, "desktop", id, "reviews", "0001.json");
   const event = JSON.parse(await readFile(path, "utf8"));
   event.note = "Changed externally";
   await writeFile(path, JSON.stringify(event));
   await expect(store.get(id)).rejects.toThrow("hash chain");
 });
 it("rejects review directories that are symlinks", async () => {
-  await symlink(tmpdir(), join(root, id, "reviews"));
+  await symlink(tmpdir(), join(root, "desktop", id, "reviews"));
   await expect(store.review(id, review)).rejects.toThrow(
     "regular evidence directory",
   );

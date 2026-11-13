@@ -1,3 +1,4 @@
+import { cropImage, ProfileStore, type Region } from "./regions.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
@@ -26,6 +27,8 @@ import { ScreenshotError } from "./errors.js";
 const exec = promisify(execFile);
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export interface CaptureOptions extends EvidenceContext {
+  region?: Region;
+  profile?: string;
   window_id?: number;
   app_name?: string;
   title?: string;
@@ -223,7 +226,23 @@ export class CaptureService {
         );
       }
       const capturedAt = new Date().toISOString();
-      const data = await this.backend.capture(
+      let region = options.region;
+      if (options.profile) {
+        if (region || !window) throw new Error("INVALID_PROFILE_TARGET");
+        const profile = await new ProfileStore(this.store.root).get(
+          options.profile,
+        );
+        if (
+          profile.app !== (window.bundleId || window.app) ||
+          profile.width !== window.bounds.width ||
+          profile.height !== window.bounds.height
+        )
+          throw new Error(
+            "PROFILE_MISMATCH: recalibrate for this app and window size.",
+          );
+        region = profile.region;
+      }
+      let data = await this.backend.capture(
         window
           ? ["-o", "-l", String(window.id)]
           : ["-D", String(options.display)],
@@ -240,9 +259,21 @@ export class CaptureService {
             true,
           );
       }
+      const source = pngInfo(data);
+      if (region) data = await cropImage(data, region);
       signal?.throwIfAborted();
       const meta: CaptureMetadata = {
         ...pngInfo(data),
+        ...(region
+          ? {
+              crop: {
+                region,
+                source_width: source.width,
+                source_height: source.height,
+                profile: options.profile,
+              },
+            }
+          : {}),
         captured_at: capturedAt,
         mode: window ? "window" : "display",
         ...(window ? { window } : { display: options.display }),

@@ -66,7 +66,7 @@ codex mcp get screenshot
 codex mcp list
 ```
 
-Restart Codex, then use `/mcp` to check the active connection. This version exposes **11 tools**. Ask Codex to call `get_capture_status` first, then `list_windows` to identify the window to capture.
+Restart Codex, then use `/mcp` to check the active connection. This version exposes **16 tools**. Ask Codex to call `get_capture_status` first, then `list_windows` to identify the window to capture.
 
 The CLI registers the server; you do not need to run `npm start` in a separate terminal. Codex starts the stdio process when it connects. If macOS denies screen capture, grant recording permission to the application launching the MCP and restart it.
 
@@ -320,3 +320,41 @@ MCP_SCREENSHOT_DIR=/tmp/mcp-screenshot-smoke node scripts/smoke.mjs --capture-bu
 The smoke test saves a local PNG, retrieves it through MCP, and checks integrity. Its images are not repository fixtures. The [GitHub Actions template](docs/github-actions.yml) compiles the native helper on macOS and checks Node 22/24 on Linux/macOS. To enable it, place it at `.github/workflows/ci.yml` using a credential with workflow permissions. The template is not active yet. CI does not validate screen capture in a logged-in desktop session.
 
 See [CHANGELOG.md](CHANGELOG.md) for versioned changes and [LICENSE](LICENSE) for licensing.
+
+## Regions and reusable profiles (0.5)
+
+Use `select_capture_region` with a `window_id` and optional `name`, for example
+`burp-response`. A frozen preview opens locally: drag a rectangle, then press
+Enter to confirm or Escape to cancel. Selection expires after 120 seconds;
+clients with shorter call timeouts may need a longer timeout. Only one selector
+can run at a time. No evidence is saved during selection. Previews are currently
+limited to 5 MiB. The capture queue is released before interactive selection.
+
+Then call `capture_window` with the current `window_id` and
+`profile: "burp-response"`. Profiles survive restarts. They require the same app
+identity and window dimensions, but allow the window to move. They are geometric
+markers: changing a panel divider, scrolling, zooming or switching tabs may change
+what appears inside the region without triggering a mismatch. Recalibrate after
+layout changes. No full-window fallback occurs when a profile fails.
+
+For automation, `save_capture_profile` accepts `name`, `version: 1`, `app`
+(bundle ID, or exact app name when unavailable), reference `width`/`height` in
+window points, and `region: {x, y, width, height}` in normalized coordinates
+between zero and one, with top-left origin. `list_capture_profiles` lists profiles;
+`delete_capture_profile` removes one. Names are immutable: use a new name or
+explicitly delete and recreate. Each capture records the region actually used.
+
+All capture tools accept a direct `region` instead of a profile. A display preview
+is available through `select_capture_region` with `display`; display selections
+are one-monitor regions, cannot become window profiles, and use the `desktop`
+folder. This version does not install global keyboard shortcuts or select across
+multiple monitors in one gesture.
+
+`capture_frontmost_window` resolves the foreground app before capturing. If it
+has multiple visible windows, select one explicitly rather than guessing.
+
+New evidence lives at `<root>/<app>/<evidence-id>/screenshot.png` with its JSON
+sidecar. Common folder names include `burp-suite`, `chrome`, `iterm2`, and
+`desktop`; other names are sanitized. Legacy root-level evidence remains readable,
+reviewable and exportable without migration. Profiles live in `<root>/profiles`.
+The full source screenshot is temporary; only the requested crop is persisted.

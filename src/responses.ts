@@ -49,6 +49,7 @@ export function presentEvidence(
         ? { id: item.window.id, app: item.window.app, title: item.window.title }
         : undefined,
       display: item.display,
+      crop: item.crop,
       integrity: item.integrity,
       persisted: item.persisted,
       image_included: item.image_included,

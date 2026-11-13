@@ -35,6 +35,11 @@ describe("MCP protocol", () => {
       expect(tools.map((t) => t.name).sort()).toEqual(
         [
           "capture_burp_screenshot",
+          "capture_frontmost_window",
+          "select_capture_region",
+          "list_capture_profiles",
+          "delete_capture_profile",
+          "save_capture_profile",
           "capture_window",
           "review_evidence",
           "export_evidence",
