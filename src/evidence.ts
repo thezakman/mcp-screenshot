@@ -1,3 +1,4 @@
+import { configuredRoot } from "./settings.js";
 import { readReviews, appendReview, digest } from "./reviews.js";
 import type { reviewInput } from "./reviews.js";
 import type { z } from "zod";
@@ -64,8 +65,8 @@ export interface Evidence extends CaptureMetadata {
   image: string;
 }
 export class EvidenceStore {
-  readonly root: string;
-  constructor(root = process.env.MCP_SCREENSHOT_DIR ?? DEFAULT_ROOT) {
+  root: string;
+  constructor(root = configuredRoot()) {
     if (!isAbsolute(root))
       throw new ScreenshotError(
         "INVALID_PATH",

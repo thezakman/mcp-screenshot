@@ -1,3 +1,5 @@
+import { runSelector } from "./selector.js";
+import { profilesRoot } from "./settings.js";
 import {
   ProfileStore,
   profileSchema,
@@ -343,7 +345,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
         ),
       ),
   );
-  const profiles = new ProfileStore(service.store.root);
+  const profiles = new ProfileStore(profilesRoot());
   server.registerTool(
     "save_capture_profile",
     {
@@ -382,7 +384,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
     "select_capture_region",
     {
       description:
-        "Open a frozen window/display preview. Drag a region, Enter confirms, Escape cancels. Times out after 300 seconds. Optionally save an immutable named window profile. No evidence is persisted. Use a new name to recalibrate, or delete the old profile first.",
+        "Open the capture workspace with a window/display preview, saved profiles, target selection, full-image selection and settings. Confirm returns a region and optionally creates a profile; Capture and save persists evidence. Each interactive step expires after 300 seconds.",
       inputSchema: {
         ...windowFields,
         display: z.number().int().positive().optional(),
@@ -397,38 +399,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
           (args.window_id || args.app_name || args.title || args.name)
         )
           throw new Error("Choose a window profile or a display selection.");
-        const result = await service.capture(
-          {
-            ...args,
-            persist: false,
-            include_image: true,
-          },
-          extra.signal,
-        );
-        if (!result.image) throw new Error("Preview unavailable");
-        const region = await selectRegion(
-          Buffer.from(result.image, "base64"),
-          extra.signal,
-        );
-        const w = result.metadata.window;
-        const profile =
-          args.name && w
-            ? await profiles.save({
-                name: args.name,
-                version: 1,
-                app: w.bundleId || w.app,
-                width: w.bounds.width,
-                height: w.bounds.height,
-                region,
-              })
-            : undefined;
-        return textResult({
-          region,
-          profile,
-          window: w,
-          display: args.display,
-          note: "Geometric selection only. Capture again using region or profile; panel content is not recognized.",
-        });
+        return textResult(await runSelector(service, args, extra.signal));
       }),
   );
   server.registerTool(

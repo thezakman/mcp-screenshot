@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- Add target/profile menus, full-image selection, named profile creation and capture-and-save to the native workspace.
+- Add settings modal with folder chooser and profile rename/delete, keeping existing evidence intact.
+- Persist the evidence destination independently from the profile library; environment configuration takes precedence.
+- Add workflow and rename-conflict regression coverage.
+
 ## 0.5.1
 
 - Make visual selections movable and resizable with eight handles, keyboard nudging, dimmed surroundings and explicit confirm/cancel/reset buttons.

@@ -358,3 +358,33 @@ sidecar. Common folder names include `burp-suite`, `chrome`, `iterm2`, and
 `desktop`; other names are sanitized. Legacy root-level evidence remains readable,
 reviewable and exportable without migration. Profiles live in `<root>/profiles`.
 The full source screenshot is temporary; only the requested crop is persisted.
+
+## Capture workspace (0.6)
+
+`select_capture_region` now opens a capture workspace. Start with a `window_id`
+or `display`; the target menu can then switch between available windows and
+monitors. **Selecionar tudo** selects the entire current image. To capture a whole
+screen, first choose its monitor in the target menu.
+
+The profile menu shows profiles compatible with the current app and window size.
+Load one to restore its rectangle. Enter a new name in the adjacent field to
+create another profile. Existing names cannot silently overwrite geometry: use a
+new name for adjustments. **Confirmar** returns the region and saves a named
+profile; **Capturar e salvar** additionally captures the current target and saves
+PNG/JSON evidence. The latter takes a fresh capture, so content may have changed
+since the preview. **Refazer** clears the region without deleting profiles.
+
+**Configurações…** opens a modal with the current evidence/profile paths, a native
+folder chooser, and profile rename/delete actions. Deletion requires an explicit
+confirmation in the modal and preserves existing evidence. Profile management and
+folder changes apply immediately; cancelling the later selection does not undo
+those already confirmed operations. Errors return to the workspace with a message.
+
+Default evidence destination: `~/Pictures/mcp-screenshot`. The folder chooser saves
+its preference in `~/Pictures/mcp-screenshot/settings.json`. Profiles remain in
+`~/Pictures/mcp-screenshot/profiles`, independently of the selected evidence
+folder. Existing screenshots are not moved when the destination changes; switch
+back to their previous destination to browse/export them. `MCP_SCREENSHOT_DIR`
+has priority and locks the destination chooser; when set, profiles also remain
+under that configured root. Other already-running server processes must reconnect
+to adopt a changed destination. Each interactive step allows five minutes.

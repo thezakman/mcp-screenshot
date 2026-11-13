@@ -1,3 +1,4 @@
+import { profilesRoot } from "./settings.js";
 import { cropImage, ProfileStore, type Region } from "./regions.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -79,6 +80,7 @@ export class CaptureService {
     readonly store = new EvidenceStore(),
     private backend: Backend = systemBackend,
     blocked = process.env.BLOCKED_APPS ?? "",
+    private profileDirectory = profilesRoot(),
   ) {
     this.blocked = blocked
       .split(",")

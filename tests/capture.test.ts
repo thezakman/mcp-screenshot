@@ -19,7 +19,7 @@ beforeEach(async () => {
     displays: vi.fn(async () => []),
     capture: vi.fn(async () => PNG),
   };
-  service = new CaptureService(new EvidenceStore(root), backend, "");
+  service = new CaptureService(new EvidenceStore(root), backend, "", root);
 });
 afterEach(async () => rm(root, { recursive: true, force: true }));
 describe("capture workflow", () => {

@@ -21,17 +21,44 @@ do {
         try emit(["ok": true])
     case "select":
         guard let path = CommandLine.arguments.dropFirst(2).first, let image = NSImage(contentsOfFile: path) else { throw NSError(domain: "Missing preview", code: 1) }
+        let configPath = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : ""
+        let config = (try? Data(contentsOf: URL(fileURLWithPath: configPath))).flatMap { try? JSONSerialization.jsonObject(with:$0) as? [String:Any] } ?? [:]
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         let size = image.size
         let screen = NSScreen.main!.visibleFrame
-        let scale = min(1, min((screen.width - 80) / size.width, (screen.height - 120) / size.height))
-        let rect = NSRect(x: 0, y: 0, width: size.width * scale, height: size.height * scale)
-        let window = SelectionWindow(contentRect: NSRect(x: 0, y: 0, width: rect.width, height: rect.height + 66), styleMask: [.titled], backing: .buffered, defer: false)
+        let scale = min(1, min((screen.width - 80) / size.width, (screen.height - 200) / size.height))
+        let canvas = NSRect(x: 0, y: 0, width: size.width * scale, height: size.height * scale)
+        let rect = NSRect(x:0,y:0,width:max(900,canvas.width),height:canvas.height)
+        let window = SelectionWindow(contentRect: NSRect(x: 0, y: 0, width: rect.width, height: rect.height + 144), styleMask: [.titled], backing: .buffered, defer: false)
         window.title = "Selecionar região — ajuste e confirme"
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: rect.width, height: rect.height + 66))
-        let region = RegionView(frame: NSRect(x: 0, y: 66, width: rect.width, height: rect.height), image: image)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: rect.width, height: rect.height + 144))
+        let region = RegionView(frame: NSRect(x: (rect.width-canvas.width)/2, y: 144, width: canvas.width, height: canvas.height), image: image)
+        region.configuration = config
         container.addSubview(region)
+        let all = NSButton(title: "Selecionar tudo", target: region, action: #selector(RegionView.selectAllImage))
+        all.frame = NSRect(x:110,y:5,width:140,height:30); container.addSubview(all)
+        let settings = NSButton(title: "Configurações…", target: region, action: #selector(RegionView.settings))
+        settings.frame = NSRect(x:260,y:5,width:150,height:30); container.addSubview(settings)
+        let capture = NSButton(title: "Capturar e salvar", target:region,action:#selector(RegionView.captureSelection))
+        capture.frame = NSRect(x:rect.width-400,y:5,width:165,height:30); container.addSubview(capture)
+        let names = NSPopUpButton(frame:NSRect(x:12,y:76,width:260,height:28))
+        names.addItem(withTitle:"Perfil: seleção manual")
+        for profile in config["profiles"] as? [[String:Any]] ?? [] { names.addItem(withTitle:profile["name"] as? String ?? "") }
+        if let current=config["name"] as? String, names.itemTitles.contains(current) { names.selectItem(withTitle:current) }
+        names.target=region; names.action=#selector(RegionView.loadProfile(_:)); container.addSubview(names)
+        let name = NSTextField(frame:NSRect(x:285,y:76,width:280,height:26))
+        name.placeholderString="Nome para novo perfil (opcional)"; name.stringValue=config["name"] as? String ?? ""
+        region.nameField=name; container.addSubview(name)
+        let targets=NSPopUpButton(frame:NSRect(x:12,y:110,width:rect.width-24,height:28))
+        for target in config["targets"] as? [[String:Any]] ?? [] {
+            targets.addItem(withTitle:target["title"] as? String ?? "")
+            targets.lastItem?.representedObject=target["id"]
+            if target["id"] as? String == config["current_target"] as? String { targets.select(targets.lastItem) }
+        }
+        targets.target=region; targets.action=#selector(RegionView.changeTarget(_:)); container.addSubview(targets)
+        let destination=NSTextField(labelWithString:"Destino: \(config["destination"] as? String ?? "")")
+        destination.frame=NSRect(x:12,y:54,width:rect.width-24,height:20); destination.lineBreakMode = .byTruncatingMiddle; container.addSubview(destination)
         let hint = NSTextField(labelWithString: "Arraste para selecionar. Mova pelo centro; ajuste pelas bordas.")
         hint.frame = NSRect(x: 12, y: 38, width: rect.width - 24, height: 20)
         container.addSubview(hint)
@@ -44,6 +71,9 @@ do {
         save.keyEquivalent = "\r"
         save.isEnabled = false
         region.confirmButton = save
+        if let r=config["initial_region"] as? [String:Double], let x=r["x"], let y=r["y"], let w=r["width"], let h=r["height"] {
+            region.selection=NSRect(x:x*region.bounds.width,y:(1-y-h)*region.bounds.height,width:w*region.bounds.width,height:h*region.bounds.height); region.refresh()
+        }
         container.addSubview(save)
         let reset = NSButton(title: "Refazer", target: region, action: #selector(RegionView.resetSelection))
         reset.frame = NSRect(x: 12, y: 5, width: 90, height: 30)
@@ -53,6 +83,10 @@ do {
         window.makeKeyAndOrderFront(nil)
         app.activate(ignoringOtherApps: true)
         window.makeFirstResponder(region)
+        if let error=config["error"] as? String {
+            let alert=NSAlert(); alert.messageText="Não foi possível concluir"; alert.informativeText=error
+            alert.beginSheetModal(for:window)
+        }
         withExtendedLifetime(window) { app.run() }
     case "frontmost":
         try emit(["pid": NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0])
@@ -105,6 +139,8 @@ final class SelectionWindow: NSWindow {
 }
 final class RegionView: NSView {
     let image: NSImage
+    var configuration: [String:Any] = [:]
+    weak var nameField: NSTextField?
     var start = NSPoint.zero
     var original = NSRect.zero
     var selection = NSRect.zero
@@ -171,12 +207,63 @@ final class RegionView: NSView {
     }
     @objc func resetSelection() { selection = .zero; refresh(); window?.makeFirstResponder(self) }
     @objc func cancelSelection() { try? emit(["cancelled": true]); exit(0) }
+    func finish(_ value:[String:Any]) {
+        var response=value
+        response["draft_name"] = nameField?.stringValue ?? ""
+        if valid && response["region"] == nil {response["region"]=selectedRegion()}
+        do { try emit(response); exit(0) }
+        catch { FileHandle.standardError.write(Data("Could not return selection\n".utf8)); exit(1) }
+    }
+    func selectedRegion() -> [String:Double] {
+        ["x":selection.minX/bounds.width,"y":(bounds.height-selection.maxY)/bounds.height,"width":selection.width/bounds.width,"height":selection.height/bounds.height]
+    }
+    @objc func selectAllImage() { selection=bounds; refresh(); window?.makeFirstResponder(self) }
     @objc func confirmSelection() {
         guard valid else { NSSound.beep(); return }
-        do {
-            try emit(["x": selection.minX / bounds.width, "y": (bounds.height-selection.maxY) / bounds.height, "width": selection.width / bounds.width, "height": selection.height / bounds.height])
-            exit(0)
-        } catch { FileHandle.standardError.write(Data("Selection could not be confirmed\n".utf8)); exit(1) }
+        if configuration.isEmpty { finish(selectedRegion()); return }
+        finish(["action":"confirm","region":selectedRegion(),"name":nameField?.stringValue ?? ""])
+    }
+    @objc func captureSelection() {
+        guard valid else { NSSound.beep(); return }
+        finish(["action":"capture","region":selectedRegion(),"name":nameField?.stringValue ?? ""])
+    }
+    @objc func loadProfile(_ sender:NSPopUpButton) {
+        let profiles=configuration["profiles"] as? [[String:Any]] ?? []
+        let index=sender.indexOfSelectedItem-1
+        guard index>=0 && index<profiles.count, let r=profiles[index]["region"] as? [String:Double],
+              let x=r["x"], let y=r["y"], let w=r["width"], let h=r["height"] else { nameField?.stringValue=""; return }
+        selection=NSRect(x:x*bounds.width,y:(1-y-h)*bounds.height,width:w*bounds.width,height:h*bounds.height)
+        nameField?.stringValue=profiles[index]["name"] as? String ?? ""; refresh()
+    }
+    @objc func changeTarget(_ sender:NSPopUpButton) {
+        guard let target=sender.selectedItem?.representedObject as? String else { return }
+        finish(["action":"target","target":target])
+    }
+    @objc func settings() {
+        let alert=NSAlert()
+        alert.messageText="Configurações e perfis"
+        alert.informativeText="Capturas: \(configuration["destination"] as? String ?? "")\nPerfis: \(configuration["profiles_directory"] as? String ?? "")\nMudar o destino não move capturas existentes."
+        alert.addButton(withTitle:"Escolher pasta…")
+        alert.addButton(withTitle:"Renomear perfil…")
+        alert.addButton(withTitle:"Apagar perfil…")
+        alert.addButton(withTitle:"Fechar")
+        if configuration["destination_locked"] as? Bool == true { alert.buttons[0].isEnabled=false; alert.informativeText += "\nDestino definido por MCP_SCREENSHOT_DIR." }
+        let list=NSPopUpButton(frame:NSRect(x:0,y:0,width:360,height:28))
+        for p in configuration["all_profiles"] as? [[String:Any]] ?? [] {list.addItem(withTitle:p["name"] as? String ?? "")}
+        alert.accessoryView=list
+        let choice=alert.runModal()
+        if choice == .alertFirstButtonReturn {
+            let panel=NSOpenPanel(); panel.canChooseFiles=false; panel.canChooseDirectories=true; panel.canCreateDirectories=true; panel.allowsMultipleSelection=false
+            if panel.runModal() == .OK, let url=panel.url { finish(["action":"destination","destination":url.path]) }
+        } else if choice == .alertSecondButtonReturn, let name=list.titleOfSelectedItem {
+            let rename=NSAlert(); rename.messageText="Renomear \(name)"; rename.addButton(withTitle:"Renomear"); rename.addButton(withTitle:"Cancelar")
+            let field=NSTextField(frame:NSRect(x:0,y:0,width:360,height:26)); field.stringValue=name; rename.accessoryView=field
+            if rename.runModal() == .alertFirstButtonReturn {finish(["action":"rename","name":name,"new_name":field.stringValue])}
+        } else if choice == .alertThirdButtonReturn, let name=list.titleOfSelectedItem {
+            let confirm=NSAlert(); confirm.messageText="Apagar o perfil \(name)?"; confirm.informativeText="As capturas existentes serão preservadas."; confirm.addButton(withTitle:"Apagar");confirm.addButton(withTitle:"Cancelar")
+            if confirm.runModal() == .alertFirstButtonReturn {finish(["action":"delete","name":name])}
+        }
+        window?.makeFirstResponder(self)
     }
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 { cancelSelection(); return }

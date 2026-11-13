@@ -84,6 +84,13 @@ export class ProfileStore {
         .map((n) => this.get(n.slice(0, -5))),
     );
   }
+  async rename(oldName: string, newName: string) {
+    if (oldName === newName) return this.get(oldName);
+    const current = await this.get(oldName);
+    const saved = await this.save({ ...current, name: newName });
+    await this.delete(oldName);
+    return saved;
+  }
   async delete(name: string) {
     await rm(join(await this.directory(), profileName.parse(name) + ".json"));
   }
@@ -124,7 +131,8 @@ let selecting = false;
 export async function selectRegion(
   data: Buffer,
   signal?: AbortSignal,
-): Promise<Region> {
+  context?: Record<string, unknown>,
+): Promise<any> {
   if (selecting)
     throw new Error("SELECTION_BUSY: finish the current selection.");
   selecting = true;
@@ -133,9 +141,12 @@ export async function selectRegion(
     dir = await mkdtemp(join(tmpdir(), "screenshot-select-"));
     const input = join(dir, "preview.png");
     await writeFile(input, data, { mode: 0o600 });
-    const result = await native<unknown>("select", [input], 300000, signal);
+    const config = join(dir, "context.json");
+    await writeFile(config, JSON.stringify(context ?? {}), { mode: 0o600 });
+    const result = await native<any>("select", [input, config], 300000, signal);
     if (result && typeof result === "object" && "cancelled" in result)
       throw new Error("SELECTION_CANCELLED: no profile or evidence saved.");
+    if (context) return result;
     return regionSchema.parse(result);
   } finally {
     selecting = false;
