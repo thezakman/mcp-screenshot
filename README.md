@@ -388,3 +388,5 @@ back to their previous destination to browse/export them. `MCP_SCREENSHOT_DIR`
 has priority and locks the destination chooser; when set, profiles also remain
 under that configured root. Other already-running server processes must reconnect
 to adopt a changed destination. Each interactive step allows five minutes.
+
+The workspace keeps its controls above the image and shows selection dimensions in pixels. **Manter no topo** is enabled by default so changing application focus does not cover the selector; turn it off to allow other windows above it. It does not force keyboard focus back to itself.

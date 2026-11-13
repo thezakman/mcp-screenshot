@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1
+
+- Keep the capture workspace above other applications by default, with a visible toggle and no hiding on deactivation.
+- Move controls above the image, clarify confirmation versus capture, and show live selection dimensions and keyboard hints.
+
 ## 0.6.0
 
 - Add target/profile menus, full-image selection, named profile creation and capture-and-save to the native workspace.

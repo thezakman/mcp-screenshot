@@ -31,9 +31,12 @@ do {
         let canvas = NSRect(x: 0, y: 0, width: size.width * scale, height: size.height * scale)
         let rect = NSRect(x:0,y:0,width:max(900,canvas.width),height:canvas.height)
         let window = SelectionWindow(contentRect: NSRect(x: 0, y: 0, width: rect.width, height: rect.height + 144), styleMask: [.titled], backing: .buffered, defer: false)
-        window.title = "Selecionar região — ajuste e confirme"
+        window.title = "Captura — região, perfis e destino"
+        window.hidesOnDeactivate = false
+        window.level = .floating
+        window.collectionBehavior = [.fullScreenAuxiliary]
         let container = NSView(frame: NSRect(x: 0, y: 0, width: rect.width, height: rect.height + 144))
-        let region = RegionView(frame: NSRect(x: (rect.width-canvas.width)/2, y: 144, width: canvas.width, height: canvas.height), image: image)
+        let region = RegionView(frame: NSRect(x: (rect.width-canvas.width)/2, y: 0, width: canvas.width, height: canvas.height), image: image)
         region.configuration = config
         container.addSubview(region)
         let all = NSButton(title: "Selecionar tudo", target: region, action: #selector(RegionView.selectAllImage))
@@ -41,7 +44,10 @@ do {
         let settings = NSButton(title: "Configurações…", target: region, action: #selector(RegionView.settings))
         settings.frame = NSRect(x:260,y:5,width:150,height:30); container.addSubview(settings)
         let capture = NSButton(title: "Capturar e salvar", target:region,action:#selector(RegionView.captureSelection))
-        capture.frame = NSRect(x:rect.width-400,y:5,width:165,height:30); container.addSubview(capture)
+        region.captureButton=capture
+        capture.isEnabled=false
+        capture.toolTip="Captura o conteúdo atual e salva PNG e JSON na pasta de destino."
+        capture.frame = NSRect(x:rect.width-450,y:5,width:165,height:30); container.addSubview(capture)
         let names = NSPopUpButton(frame:NSRect(x:12,y:76,width:260,height:28))
         names.addItem(withTitle:"Perfil: seleção manual")
         for profile in config["profiles"] as? [[String:Any]] ?? [] { names.addItem(withTitle:profile["name"] as? String ?? "") }
@@ -61,14 +67,18 @@ do {
         destination.frame=NSRect(x:12,y:54,width:rect.width-24,height:20); destination.lineBreakMode = .byTruncatingMiddle; container.addSubview(destination)
         let hint = NSTextField(labelWithString: "Arraste para selecionar. Mova pelo centro; ajuste pelas bordas.")
         hint.frame = NSRect(x: 12, y: 38, width: rect.width - 24, height: 20)
+        hint.textColor = .secondaryLabelColor
+        hint.font = .systemFont(ofSize:11)
+        region.statusLabel=hint
         container.addSubview(hint)
         let cancel = NSButton(title: "Cancelar", target: region, action: #selector(RegionView.cancelSelection))
-        cancel.frame = NSRect(x: rect.width - 230, y: 5, width: 100, height: 30)
+        cancel.frame = NSRect(x: rect.width - 280, y: 5, width: 100, height: 30)
         cancel.keyEquivalent = "\u{1b}"
         container.addSubview(cancel)
-        let save = NSButton(title: "Confirmar", target: region, action: #selector(RegionView.confirmSelection))
-        save.frame = NSRect(x: rect.width - 125, y: 5, width: 113, height: 30)
+        let save = NSButton(title: "Confirmar seleção", target: region, action: #selector(RegionView.confirmSelection))
+        save.frame = NSRect(x: rect.width - 170, y: 5, width: 158, height: 30)
         save.keyEquivalent = "\r"
+        save.toolTip="Confirma a região e salva o perfil nomeado. Não salva um screenshot."
         save.isEnabled = false
         region.confirmButton = save
         if let r=config["initial_region"] as? [String:Double], let x=r["x"], let y=r["y"], let w=r["width"], let h=r["height"] {
@@ -78,6 +88,18 @@ do {
         let reset = NSButton(title: "Refazer", target: region, action: #selector(RegionView.resetSelection))
         reset.frame = NSRect(x: 12, y: 5, width: 90, height: 30)
         container.addSubview(reset)
+        let pin=NSButton(checkboxWithTitle:"Manter no topo",target:region,action:#selector(RegionView.togglePinned(_:)))
+        pin.state = .on; pin.frame=NSRect(x:rect.width-175,y:76,width:160,height:26); container.addSubview(pin)
+        names.toolTip="Perfis compatíveis com o aplicativo e as dimensões desta janela."
+        targets.toolTip="Escolha a janela ou o monitor que será capturado."
+        name.toolTip="Use letras minúsculas, números e hífens. Deixe vazio para não salvar perfil."
+        destination.toolTip=config["destination"] as? String
+        all.toolTip="Seleciona a imagem inteira do alvo atual. Para tela inteira, escolha um monitor."
+        for control in container.subviews where control !== region {
+            control.frame.origin.y += canvas.height
+            if let button=control as? NSButton, !(button is NSPopUpButton), button !== pin { button.bezelStyle = .rounded }
+        }
+        region.refresh()
         window.contentView = container
         window.center()
         window.makeKeyAndOrderFront(nil)
@@ -146,12 +168,24 @@ final class RegionView: NSView {
     var selection = NSRect.zero
     var dragMode = "draw"
     weak var confirmButton: NSButton?
+    weak var captureButton: NSButton?
+    weak var statusLabel: NSTextField?
+    @objc func togglePinned(_ sender:NSButton) { window?.level = sender.state == .on ? .floating : .normal }
+
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     init(frame: NSRect, image: NSImage) { self.image = image; super.init(frame: frame) }
     required init?(coder: NSCoder) { fatalError() }
     var valid: Bool { selection.width >= 2 && selection.height >= 2 }
-    func refresh() { needsDisplay = true; confirmButton?.isEnabled = valid }
+    func refresh() {
+        needsDisplay = true; confirmButton?.isEnabled = valid; captureButton?.isEnabled = valid
+        if valid {
+            let cg=image.cgImage(forProposedRect:nil,context:nil,hints:nil)
+            let w=Int((selection.width/bounds.width*CGFloat(cg?.width ?? Int(image.size.width))).rounded())
+            let h=Int((selection.height/bounds.height*CGFloat(cg?.height ?? Int(image.size.height))).rounded())
+            statusLabel?.stringValue="Seleção: \(w) × \(h) px · Arraste o centro para mover; use as alças para ajustar. Setas: precisão; Shift: passo maior."
+        } else { statusLabel?.stringValue="Arraste sobre a imagem ou escolha Selecionar tudo. A prévia é congelada; Capturar e salvar faz uma nova captura." }
+    }
     var handles: [NSPoint] {
         [NSPoint(x:selection.minX,y:selection.minY),NSPoint(x:selection.midX,y:selection.minY),NSPoint(x:selection.maxX,y:selection.minY),
          NSPoint(x:selection.minX,y:selection.midY),NSPoint(x:selection.maxX,y:selection.midY),
