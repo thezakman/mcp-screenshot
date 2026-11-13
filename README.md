@@ -423,3 +423,5 @@ The MCP client interprets the request and inspects the image; the server does no
 For distinct-item batches, select and visually verify **each** item. Pass previous saved evidence IDs in `reject_same_as` (up to 20); a byte-identical PNG fails with `DUPLICATE_CAPTURE` before saving. Inspect the resulting images as well: different hashes do not prove different/correct items, and accessibility text alone may not match rendered content. For longer batches compare against all earlier hashes on the client. This guard is opt-in because legitimate repeated captures can be useful.
 
 Reconnect the MCP client after upgrading to refresh tool schemas and server instructions.
+
+Suggested selections reuse the exact inspected preview in the same connected MCP session (maximum four uncropped ephemeral images, five-minute expiry). Keep that session open between preview and selector calls. Window identity and bounds must still match. The preview stays frozen; Capturar e salvar takes a fresh screenshot after confirmation.

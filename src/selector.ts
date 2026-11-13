@@ -73,10 +73,15 @@ export async function runSelector(
         "WINDOW_REQUIRED: choose an initial window_id or display.",
       );
     }
-    const result = await service.capture(
-      { ...target, persist: false, include_image: true },
-      signal,
-    );
+    const cached = pendingSuggestion
+      ? await service.suggestedPreview(pendingSuggestion.source_sha256, target)
+      : undefined;
+    const result =
+      cached ??
+      (await service.capture(
+        { ...target, persist: false, include_image: true },
+        signal,
+      ));
     if (!result.image) throw new Error("Preview unavailable");
     if (pendingSuggestion) {
       if (pendingSuggestion.source_sha256 === result.metadata.sha256) {

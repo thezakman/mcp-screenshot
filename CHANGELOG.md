@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1
+
+- Reuse the exact inspected ephemeral preview for suggested selections in the same MCP session (up to four previews, five-minute expiry), validating window identity and bounds. Dynamic counters no longer invalidate the selection.
+
 ## 0.8.0
 
 - Accept agent-proposed regions tied to an inspected preview hash, with the original request and explanation in the editable confirmation dialog. Discard stale proposals.

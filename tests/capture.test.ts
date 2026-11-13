@@ -122,3 +122,30 @@ it("rejects identical captures before creating evidence for the next item", asyn
   ).rejects.toThrow("Nothing saved");
   expect((await service.store.list()).items).toHaveLength(1);
 });
+
+it("retains the inspected preview but rejects changed window bounds and expired previews", async () => {
+  const first = await service.capture({
+    window_id: 42,
+    persist: false,
+    include_image: true,
+  });
+  expect(
+    (await service.suggestedPreview(first.metadata.sha256, { window_id: 42 }))
+      ?.image,
+  ).toBe(first.image);
+  vi.mocked(backend.windows).mockResolvedValue([
+    { ...WINDOW, bounds: { ...WINDOW.bounds, width: 900 } },
+  ]);
+  expect(
+    await service.suggestedPreview(first.metadata.sha256, { window_id: 42 }),
+  ).toBeUndefined();
+  vi.mocked(backend.windows).mockResolvedValue([WINDOW]);
+  const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 300001);
+  try {
+    expect(
+      await service.suggestedPreview(first.metadata.sha256, { window_id: 42 }),
+    ).toBeUndefined();
+  } finally {
+    now.mockRestore();
+  }
+});

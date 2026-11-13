@@ -75,6 +75,28 @@ export const systemBackend: Backend = {
   },
 };
 export class CaptureService {
+  private previews = new Map<
+    string,
+    { metadata: CaptureMetadata; image: string; expires: number }
+  >();
+  async suggestedPreview(hash: string, options: CaptureOptions) {
+    const preview = this.previews.get(hash);
+    if (!preview || preview.expires < Date.now()) {
+      this.previews.delete(hash);
+      return undefined;
+    }
+    if (preview.metadata.window) {
+      if (options.display !== undefined) return undefined;
+      const current = selectWindow(await this.windows(), options);
+      if (
+        !sameWindow(preview.metadata.window, current) ||
+        (options.expected_window_token &&
+          windowToken(current) !== options.expected_window_token)
+      )
+        return undefined;
+    } else if (preview.metadata.display !== options.display) return undefined;
+    return preview;
+  }
   readonly queue = new CaptureQueue();
   readonly blocked: string[];
   constructor(
@@ -331,6 +353,15 @@ export class CaptureService {
         result.warnings.push(
           "Inline image omitted: exceeds 5 MiB. The full PNG is saved on disk.",
         );
+      if (options.persist === false && inline && !region) {
+        this.previews.set(meta.sha256, {
+          metadata: meta,
+          image: data.toString("base64"),
+          expires: Date.now() + 300_000,
+        });
+        while (this.previews.size > 4)
+          this.previews.delete(this.previews.keys().next().value!);
+      }
       return {
         metadata: {
           ...result,
