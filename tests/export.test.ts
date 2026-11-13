@@ -1,6 +1,6 @@
 import { it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, readFile, writeFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { EvidenceStore, pngInfo } from "../src/evidence.js";
 import { exportEvidence } from "../src/export.js";
@@ -65,7 +65,9 @@ it("exports originals, verified metadata, review history and an offline gallery"
   expect(
     await readFile(join(result.path, "evidence", id, "reviews", "0001.json")),
   ).toEqual(
-    await readFile(join(root, "local", "desktop", id, "reviews", "0001.json")),
+    await readFile(
+      join(dirname((await store.get(id)).path), "reviews", "0001.json"),
+    ),
   );
 });
 it("does not publish a partial package when a source fails integrity checks", async () => {

@@ -31,6 +31,15 @@ import { parseManifest, manifestSchema } from "./manifest.js";
 import { ScreenshotError } from "./errors.js";
 import type { WindowInfo } from "./native.js";
 const ID_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_[0-9a-f-]{36}$/;
+const CAPTURE_FOLDER =
+  /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-\d{3}(?:-[2-9]\d*|-1\d+)?$/;
+export function captureFolder(at: string) {
+  return new Date(at)
+    .toISOString()
+    .replace("T", "_")
+    .replace(/[:.]/g, "-")
+    .replace(/Z$/, "");
+}
 export const DEFAULT_ROOT = join(homedir(), "Pictures", "mcp-screenshot");
 export interface EvidenceContext {
   case_id?: string;
@@ -65,8 +74,10 @@ export interface Evidence extends CaptureMetadata {
   image: string;
 }
 export function projectFolder(caseId?: string) {
-  if (!caseId?.trim()) return "sem-projeto";
+  if (!caseId?.trim())
+    return `${new Date().toISOString().replace(/[:.]/g, "-")}_${randomUUID()}`;
   const value = caseId.trim();
+  if (ID_PATTERN.test(value)) return value;
   const slug =
     value
       .toLowerCase()
@@ -121,6 +132,8 @@ export class EvidenceStore {
               .replace(/[^a-z0-9]+/g, "-")
               .replace(/^-|-$/g, "")
               .slice(0, 80) || "application";
+    if (!context.case_id?.trim())
+      context = { ...context, case_id: projectFolder() };
     const project = projectFolder(context.case_id);
     const folder = join(root, project, slug);
     await mkdir(join(root, project), { recursive: true, mode: 0o700 });
@@ -129,8 +142,7 @@ export class EvidenceStore {
     await assertDirectory(folder);
     const temp = await mkdtemp(join(folder, ".pending-"));
     const stagedApp = temp;
-    const destination = join(folder, id);
-    const dir = destination;
+    let dir: string | undefined;
     const evidence: Evidence = {
       ...meta,
       schema_version: 1,
@@ -151,16 +163,35 @@ export class EvidenceStore {
         JSON.stringify(evidence, null, 2) + "\n",
         { flag: "wx", mode: 0o600 },
       );
-      // Publish the PNG + sidecar together. Readers never see a half-written evidence item.
-      await rename(temp, destination);
+      // Exclusive mkdir reserves a timestamp even across separate server processes.
+      const base = captureFolder(meta.captured_at);
+      for (let suffix = 1; suffix <= 10000; suffix++) {
+        const candidate = join(
+          folder,
+          base + (suffix === 1 ? "" : `-${suffix}`),
+        );
+        try {
+          await mkdir(candidate, { mode: 0o700 });
+          dir = candidate;
+          break;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        }
+      }
+      if (!dir) throw new Error("CAPTURE_NAME_EXHAUSTED");
+      await link(join(temp, evidence.image), join(dir, evidence.image));
+      // The manifest is the commit marker: readers ignore folders without it.
+      await link(join(temp, "evidence.json"), join(dir, "evidence.json"));
     } catch (error) {
-      await rm(temp, { recursive: true, force: true });
+      if (dir) await rm(dir, { recursive: true, force: true });
       throw error;
+    } finally {
+      await rm(temp, { recursive: true, force: true });
     }
     return {
       ...evidence,
-      path: join(dir, evidence.image),
-      manifest_path: join(dir, "evidence.json"),
+      path: join(dir!, evidence.image),
+      manifest_path: join(dir!, "evidence.json"),
     };
   }
   private async locations(root: string) {
@@ -170,7 +201,23 @@ export class EvidenceStore {
       for (const entry of await readdir(directory, { withFileTypes: true })) {
         if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
         const path = join(directory, entry.name);
-        if (ID_PATTERN.test(entry.name)) {
+        if (CAPTURE_FOLDER.test(entry.name)) {
+          try {
+            const raw = JSON.parse(
+              (
+                await readBounded(join(path, "evidence.json"), 64 * 1024)
+              ).toString(),
+            );
+            if (typeof raw.id === "string" && ID_PATTERN.test(raw.id))
+              result.set(raw.id, path);
+          } catch (error) {
+            if (
+              (error as NodeJS.ErrnoException).code !== "ENOENT" &&
+              !(error instanceof SyntaxError)
+            )
+              throw error;
+          }
+        } else if (ID_PATTERN.test(entry.name)) {
           const children = await readdir(path, { withFileTypes: true });
           if (children.some((c) => c.isFile() && c.name === "evidence.json"))
             result.set(entry.name, path);
@@ -178,10 +225,21 @@ export class EvidenceStore {
             const apps = children.filter(
               (c) => c.isDirectory() && /^[a-z0-9][a-z0-9-]*$/.test(c.name),
             );
-            result.set(
-              entry.name,
-              apps.length === 1 ? join(path, apps[0].name) : path,
-            );
+            let legacyApp: string | undefined;
+            for (const app of apps) {
+              const entries = await readdir(join(path, app.name), {
+                withFileTypes: true,
+              });
+              if (
+                entries.some((c) => c.isFile() && c.name === "evidence.json")
+              ) {
+                legacyApp = join(path, app.name);
+                break;
+              }
+            }
+            if (legacyApp) result.set(entry.name, legacyApp);
+            else if (depth < 2) await visit(path, depth + 1);
+            else result.set(entry.name, path);
           }
         } else if (
           depth < 2 &&

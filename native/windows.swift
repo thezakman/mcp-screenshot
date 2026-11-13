@@ -96,7 +96,7 @@ do {
         let instructions=label("Arraste o centro para mover e as alças para redimensionar. Setas ajustam a posição; Shift aumenta o passo.",11)
         instructions.textColor = .secondaryLabelColor; add(instructions); stack.setCustomSpacing(18,after:instructions)
         let project=NSTextField()
-        project.placeholderString="sem-projeto"; project.stringValue=config["case_id"] as? String ?? ""
+        project.placeholderString="Automático · data + UUID"; project.stringValue=config["case_id"] as? String ?? ""
         project.heightAnchor.constraint(equalToConstant:28).isActive=true; region.projectField=project
         section("PROJETO",project)
         let destination=NSTextField(labelWithString:config["destination"] as? String ?? "")

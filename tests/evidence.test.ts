@@ -159,3 +159,28 @@ function ancillaryChunk() {
   result.writeUInt32BE(crc32(data), result.length - 4);
   return result;
 }
+
+it("reserves compact timestamp folders across concurrent stores without overwriting", async () => {
+  const { mkdir } = await import("node:fs/promises");
+  const { dirname, basename } = await import("node:path");
+  const base = "2026-10-08_12-00-00-000";
+  const folder = join(root, "concurrent", "desktop");
+  await mkdir(join(folder, base), { recursive: true });
+  const items = await Promise.all(
+    Array.from({ length: 12 }, () =>
+      new EvidenceStore(root).save(PNG, meta(), { case_id: "concurrent" }),
+    ),
+  );
+  expect(new Set(items.map((item) => item.path)).size).toBe(12);
+  expect(new Set(items.map((item) => item.id)).size).toBe(12);
+  expect(new Set(items.map((item) => basename(dirname(item.path))))).toEqual(
+    new Set(Array.from({ length: 12 }, (_, i) => `${base}-${i + 2}`)),
+  );
+  expect(await readdir(join(folder, base))).toEqual([]);
+  for (const item of items)
+    expect((await store.get(item.id, true)).data).toEqual(PNG);
+  expect((await store.list({ case_id: "concurrent" })).items).toHaveLength(12);
+  expect(
+    (await readdir(folder)).some((name) => name.startsWith(".pending-")),
+  ).toBe(false);
+});

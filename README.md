@@ -238,11 +238,13 @@ By default, captures are stored in `~/Pictures/mcp-screenshot`:
 
 ```text
 <evidence directory>/
-  <UTC timestamp>_<UUID>/
-    screenshot.png
-    evidence.json
-    reviews/          # Added only when reviewed
-      0001.json
+  <project name or generated UTC timestamp_UUID>/
+    <application>/
+      <YYYY-MM-DD_HH-mm-ss-SSS>/
+        screenshot.png
+        evidence.json
+        reviews/      # Added only when reviewed
+          0001.json
 ```
 
 Each record includes:
@@ -394,9 +396,8 @@ The workspace groups its controls in a sidebar beside the image and shows select
 ## Project organization and sidebar (0.7)
 
 New screenshots use `<destination>/<project>/<app>/<capture-id>/screenshot.png`
-with `evidence.json` beside the PNG. The capture ID retains the timestamp + UUID
-format. Set **Projeto** in the sidebar or `case_id` in capture tool arguments.
-Without a project, the folder is `sem-projeto`. Simple lowercase project IDs such
+with `evidence.json` beside the PNG. The evidence ID retains the timestamp + UUID format inside `evidence.json`. Capture folder names use `YYYY-MM-DD_HH-mm-ss-SSS` in UTC; simultaneous captures receive `-2`, `-3`, etc., without overwriting existing folders. Set **Projeto** in the sidebar or `case_id` in capture tool arguments.
+Without a project, a timestamp + UUID project name is generated and recorded as the evidence case ID. Simple lowercase project IDs such
 as `cliente-a` remain readable; names needing normalization receive a short hash
 suffix to distinguish them. The original case ID stays in the evidence metadata.
 
@@ -407,3 +408,5 @@ The resizable workspace uses a compact sidebar and a proportional preview. The
 selection stays anchored to the image when resizing the workspace. **Capturar e
 salvar** is the primary action (Return); **Salvar apenas a seleção** confirms the
 region/profile without creating a screenshot. The sidebar scrolls on small screens.
+
+Compact folder names are presentation only: use the returned evidence ID for MCP retrieval, reviews and exports. A missing manifest marks an incomplete capture and is not listed as evidence. Existing folders are not renamed.

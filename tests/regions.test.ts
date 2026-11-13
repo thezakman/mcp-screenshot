@@ -3,7 +3,12 @@ import { mkdtemp, rm, rename, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { pixelRegion, ProfileStore } from "../src/regions.js";
-import { EvidenceStore, pngInfo, projectFolder } from "../src/evidence.js";
+import {
+  EvidenceStore,
+  pngInfo,
+  projectFolder,
+  captureFolder,
+} from "../src/evidence.js";
 import { PNG, WINDOW } from "./helpers.js";
 it("rounds outward, preserves edge pixels and rejects overflow", () => {
   expect(
@@ -52,7 +57,12 @@ it("reads both app folders and legacy evidence by ID", async () => {
     expect((await store.get(item.id)).id).toBe(item.id);
     expect(
       item.path.endsWith(
-        join("sem-projeto", "burp-suite", item.id, "screenshot.png"),
+        join(
+          item.context.case_id!,
+          "burp-suite",
+          captureFolder(item.captured_at),
+          "screenshot.png",
+        ),
       ),
     ).toBe(true);
     // Previous app-first format.
@@ -100,18 +110,31 @@ it("uses project/app/capture folders and keeps project names path-safe", async (
     );
     expect(
       first.path.endsWith(
-        join("cliente-a", "burp-suite", first.id, "screenshot.png"),
+        join(
+          "cliente-a",
+          "burp-suite",
+          captureFolder(first.captured_at),
+          "screenshot.png",
+        ),
       ),
     ).toBe(true);
     expect(
       second.path.endsWith(
-        join("cliente-a", "chrome", second.id, "screenshot.png"),
+        join(
+          "cliente-a",
+          "chrome",
+          captureFolder(second.captured_at),
+          "screenshot.png",
+        ),
       ),
     ).toBe(true);
     expect((await store.list({ case_id: "cliente-a" })).items).toHaveLength(2);
     expect((await store.get(second.id)).context.case_id).toBe("cliente-a");
     expect(projectFolder("../escape")).toMatch(/^escape-[a-f0-9]{10}$/);
-    expect(projectFolder(undefined)).toBe("sem-projeto");
+    expect(projectFolder(undefined)).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_[0-9a-f-]{36}$/,
+    );
+    expect(projectFolder(" ")).not.toBe(projectFolder(""));
     expect(projectFolder("sem-projeto")).not.toBe("sem-projeto");
   } finally {
     await rm(root, { recursive: true, force: true });

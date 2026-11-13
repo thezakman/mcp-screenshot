@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1
+
+- Generate a timestamp + UUID project name when the project is empty, recording it in evidence metadata.
+- Use compact UTC capture folders (YYYY-MM-DD_HH-mm-ss-SSS), preserving full evidence IDs in JSON. Reserve collision suffixes exclusively and publish the manifest last.
+- Recognize timestamp-named projects during evidence lookup, review and export.
+- Show the automatic naming behavior in the project field placeholder.
+
 ## 0.7.0
 
 - Redesign capture controls into a compact sidebar beside a proportional preview, with a resizable window and explicit action hierarchy.

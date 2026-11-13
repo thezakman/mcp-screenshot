@@ -1,6 +1,6 @@
 import { it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, readFile, writeFile, symlink } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { EvidenceStore, pngInfo } from "../src/evidence.js";
 import { PNG } from "./helpers.js";
@@ -64,14 +64,18 @@ it("does not overwrite a concurrently written revision", async () => {
 it("detects a broken review hash chain", async () => {
   await store.review(id, review);
   await store.review(id, { ...review, expected_revision: 1 });
-  const path = join(root, "sem-projeto", "desktop", id, "reviews", "0001.json");
+  const path = join(
+    dirname((await store.get(id)).path),
+    "reviews",
+    "0001.json",
+  );
   const event = JSON.parse(await readFile(path, "utf8"));
   event.note = "Changed externally";
   await writeFile(path, JSON.stringify(event));
   await expect(store.get(id)).rejects.toThrow("hash chain");
 });
 it("rejects review directories that are symlinks", async () => {
-  await symlink(tmpdir(), join(root, "sem-projeto", "desktop", id, "reviews"));
+  await symlink(tmpdir(), join(dirname((await store.get(id)).path), "reviews"));
   await expect(store.review(id, review)).rejects.toThrow(
     "regular evidence directory",
   );
