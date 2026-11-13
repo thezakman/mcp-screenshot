@@ -103,3 +103,94 @@ it("rename refuses collisions and preserves the source", async () => {
   expect((await profiles.get("renamed")).name).toBe("renamed");
   await expect(profiles.get("original")).rejects.toThrow();
 });
+
+it("prefills a verified suggestion and only saves the user's adjusted region", async () => {
+  const preview = await service.capture({
+    window_id: WINDOW.id,
+    persist: false,
+    include_image: true,
+  });
+  const proposed = { x: 0, y: 0, width: 0.5, height: 0.5 };
+  const adjusted = { x: 0, y: 0, width: 1, height: 1 };
+  vi.mocked(selectRegion).mockResolvedValue({
+    action: "confirm",
+    region: adjusted,
+  });
+  const result = await runSelector(
+    service,
+    {
+      window_id: WINDOW.id,
+      request: "request e response",
+      suggestion: {
+        region: proposed,
+        source_sha256: preview.metadata.sha256,
+        reason: "Painéis do Organizer",
+      },
+    },
+    new AbortController().signal,
+  );
+  expect(vi.mocked(selectRegion).mock.calls[0][2]?.initial_region).toEqual(
+    proposed,
+  );
+  expect(vi.mocked(selectRegion).mock.calls[0][2]?.request).toBe(
+    "request e response",
+  );
+  expect(result.region).toEqual(adjusted);
+  expect((await service.store.list()).items).toHaveLength(0);
+});
+it("discards stale suggestions rather than applying coordinates from another image", async () => {
+  vi.mocked(selectRegion).mockResolvedValue({
+    action: "confirm",
+    region: { x: 0, y: 0, width: 1, height: 1 },
+  });
+  await runSelector(
+    service,
+    {
+      window_id: WINDOW.id,
+      suggestion: {
+        region: { x: 0, y: 0, width: 0.5, height: 0.5 },
+        source_sha256: "0".repeat(64),
+        reason: "old image",
+      },
+    },
+    new AbortController().signal,
+  );
+  const context = vi.mocked(selectRegion).mock.calls[0][2];
+  expect(context?.initial_region).toBeUndefined();
+  expect(context?.suggestion_reason).toBeUndefined();
+  expect(context?.error).toContain("imagem mudou");
+});
+
+it("clears a suggestion when the user changes the target", async () => {
+  const preview = await service.capture({
+    window_id: WINDOW.id,
+    persist: false,
+    include_image: true,
+  });
+  const region = { x: 0, y: 0, width: 1, height: 1 };
+  vi.mocked(selectRegion)
+    .mockResolvedValueOnce({
+      action: "target",
+      target: "window:" + WINDOW.id,
+      region,
+    })
+    .mockResolvedValueOnce({ action: "confirm", region });
+  await runSelector(
+    service,
+    {
+      window_id: WINDOW.id,
+      suggestion: {
+        region,
+        source_sha256: preview.metadata.sha256,
+        reason: "first target",
+      },
+    },
+    new AbortController().signal,
+  );
+  expect(
+    vi.mocked(selectRegion).mock.calls[1][2]?.initial_region,
+  ).toBeUndefined();
+  expect(
+    vi.mocked(selectRegion).mock.calls[1][2]?.suggestion_reason,
+  ).toBeUndefined();
+});

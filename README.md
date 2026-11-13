@@ -410,3 +410,16 @@ salvar** is the primary action (Return); **Salvar apenas a seleção** confirms 
 region/profile without creating a screenshot. The sidebar scrolls on small screens.
 
 Compact folder names are presentation only: use the returned evidence ID for MCP retrieval, reviews and exports. A missing manifest marks an incomplete capture and is not listed as evidence. Existing folders are not renamed.
+
+## Suggested regions from natural-language requests
+
+The MCP client interprets the request and inspects the image; the server does not contain a vision model or silently guess coordinates. The server advertises this workflow in its MCP instructions and tool descriptions:
+
+1. Select the correct app tab/item using its connector or UI. Use `list_windows` for a fresh window token.
+2. Inspect an uncropped `capture_window` preview with `persist: false, include_image: true` (omit `profile` and `region`).
+3. Call `select_capture_region` with the user's `request` and a `suggestion` containing `region`, `source_sha256` from that preview, and a short `reason`. Coordinates are normalized 0–1 with a top-left origin. The dialog displays the request, explanation and editable selection. A stale preview hash discards the suggestion and asks for manual selection.
+4. The user confirms or adjusts the proposal. Cancel saves nothing. Without a reliable suggestion, open the same dialog without `suggestion` for manual selection. A named profile is optional; never reuse a Proxy layout for Organizer merely because both are Burp windows.
+
+For distinct-item batches, select and visually verify **each** item. Pass previous saved evidence IDs in `reject_same_as` (up to 20); a byte-identical PNG fails with `DUPLICATE_CAPTURE` before saving. Inspect the resulting images as well: different hashes do not prove different/correct items, and accessibility text alone may not match rendered content. For longer batches compare against all earlier hashes on the client. This guard is opt-in because legitimate repeated captures can be useful.
+
+Reconnect the MCP client after upgrading to refresh tool schemas and server instructions.

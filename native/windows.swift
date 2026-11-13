@@ -70,6 +70,11 @@ do {
         }
         add(label("Nova captura",22,.semibold))
         let subtitle=label("Escolha a origem, ajuste a região e salve.",12); subtitle.textColor = .secondaryLabelColor; add(subtitle); stack.setCustomSpacing(18,after:subtitle)
+        if let request=config["request"] as? String { section("PEDIDO",label(request,11)) }
+        if let reason=config["suggestion_reason"] as? String {
+            section("SELEÇÃO SUGERIDA · REVISE",label(reason,11))
+            add(label("Confirme ou ajuste o recorte antes de salvar.",11))
+        }
         let targets=NSPopUpButton()
         targets.lineBreakMode = .byTruncatingMiddle
         for target in config["targets"] as? [[String:Any]] ?? [] {

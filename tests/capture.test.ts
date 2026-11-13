@@ -110,3 +110,15 @@ it("rejects mismatched profile dimensions before capturing or saving", async () 
   expect(backend.capture).not.toHaveBeenCalled();
   expect((await service.store.list()).items).toHaveLength(0);
 });
+
+it("rejects identical captures before creating evidence for the next item", async () => {
+  const first = await service.capture({ window_id: 42 });
+  await expect(
+    service.capture({
+      window_id: 42,
+      reject_same_as: [(first.metadata as { id: string }).id],
+      label: "item 2",
+    }),
+  ).rejects.toThrow("Nothing saved");
+  expect((await service.store.list()).items).toHaveLength(1);
+});

@@ -8,6 +8,21 @@ import {
 import { profilesRoot, saveDestination } from "./settings.js";
 import { windowToken } from "./native.js";
 import { z } from "zod";
+export const selectionSuggestionSchema = z.object({
+  region: regionSchema,
+  source_sha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .describe("SHA-256 of the uncropped preview inspected by the agent."),
+  reason: z
+    .string()
+    .trim()
+    .min(1)
+    .max(500)
+    .describe(
+      "Explain what visible content this region includes; shown to the user.",
+    ),
+});
 const actionSchema = z.object({
   action: z.enum([
     "target",
@@ -28,6 +43,8 @@ const actionSchema = z.object({
 export async function runSelector(
   service: CaptureService,
   initial: {
+    request?: string;
+    suggestion?: z.infer<typeof selectionSuggestionSchema>;
     case_id?: string;
     window_id?: number;
     app_name?: string;
@@ -39,7 +56,10 @@ export async function runSelector(
   signal: AbortSignal,
 ) {
   const profiles = new ProfileStore(profilesRoot());
-  let target = { ...initial };
+  const { request, suggestion, ...captureTarget } = initial;
+  let target = { ...captureTarget };
+  let pendingSuggestion = suggestion;
+  let suggestionReason: string | undefined;
   let error: string | undefined;
   let draft: unknown;
   let draftName = initial.name ?? "";
@@ -58,6 +78,17 @@ export async function runSelector(
       signal,
     );
     if (!result.image) throw new Error("Preview unavailable");
+    if (pendingSuggestion) {
+      if (pendingSuggestion.source_sha256 === result.metadata.sha256) {
+        draft = pendingSuggestion.region;
+        suggestionReason = pendingSuggestion.reason;
+      } else {
+        error =
+          "A imagem mudou desde a sugestão. Selecione a região na prévia atual; o recorte antigo não foi aplicado.";
+        draftName = "";
+      }
+      pendingSuggestion = undefined;
+    }
     const w = result.metadata.window;
     const compatible = (await profiles.list()).filter(
       (p) =>
@@ -67,6 +98,8 @@ export async function runSelector(
         p.height === w.bounds.height,
     );
     const context = {
+      request,
+      suggestion_reason: suggestionReason,
       destination: service.store.root,
       profiles_directory: profiles.root + "/profiles",
       destination_locked: !!process.env.MCP_SCREENSHOT_DIR,
@@ -106,6 +139,7 @@ export async function runSelector(
         const match = /^(window|display):(\d+)$/.exec(action.target ?? "");
         if (!match) throw new Error("Invalid target");
         draft = undefined;
+        suggestionReason = undefined;
         draftName = "";
         const id = Number(match[2]);
         if (match[1] === "window") {

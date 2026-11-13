@@ -52,6 +52,15 @@ describe("MCP protocol", () => {
           "take_screenshot",
         ].sort(),
       );
+      expect(client.getInstructions()).toContain(
+        "never claim a batch complete",
+      );
+      const selector = tools.find((t) => t.name === "select_capture_region")!;
+      expect(selector.inputSchema.properties).toHaveProperty("suggestion");
+      expect(selector.inputSchema.properties).toHaveProperty("request");
+      expect(
+        tools.find((t) => t.name === "capture_window")!.inputSchema.properties,
+      ).toHaveProperty("reject_same_as");
       const result = await client.callTool({
         name: "capture_burp_screenshot",
         arguments: { case_id: "local-fixture" },

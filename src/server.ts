@@ -1,4 +1,4 @@
-import { runSelector } from "./selector.js";
+import { runSelector, selectionSuggestionSchema } from "./selector.js";
 import { profilesRoot } from "./settings.js";
 import {
   ProfileStore,
@@ -18,6 +18,13 @@ import { windowToken } from "./native.js";
 import { failure } from "./errors.js";
 const detailField = z.enum(["summary", "full"]).default("summary");
 const evidenceFields = {
+  reject_same_as: z
+    .array(z.string().max(160))
+    .max(20)
+    .optional()
+    .describe(
+      "For distinct-item batches, pass previous evidence IDs. Identical PNGs are rejected before saving; this does not verify item identity.",
+    ),
   region: regionSchema
     .optional()
     .describe(
@@ -114,7 +121,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
     { name: "mcp-screenshot", version },
     {
       instructions:
-        "Use list_windows then capture_window with window_id and expected_window_token. Captures save PNG + JSON locally; include_image is opt-in. Confirm content is visible: captures do not select tabs or verify exchange IDs. Reuse list_evidence/get_evidence before recapturing. Append screenshot reviews with review_evidence; export selected IDs with export_evidence for offline review. Review status is not vulnerability validation. Nothing is captured on connection.",
+        "For natural-language region requests, inspect a fresh uncropped preview with capture_window(persist=false, include_image=true), infer the requested visible region, then call select_capture_region with request and suggestion (normalized top-left region, source_sha256 from that preview, reason). The native dialog always lets the user confirm or adjust before saving. If unsure, omit suggestion and let the user draw; never invent coordinates. Reuse only a profile appropriate to the current internal layout (Burp Organizer is different from Proxy); app and window size alone do not establish compatibility. For multiple items, select each item using its application tools/UI and verify the actual rendered request/response before capture. Pass previous evidence IDs in reject_same_as, inspect each saved image, and never claim a batch complete from tool success or accessibility text alone. A different hash does not prove correct identity. Use list_windows then capture_window with window_id and expected_window_token. Captures save PNG + JSON locally; include_image is opt-in. Confirm content is visible: captures do not select tabs or verify exchange IDs. Reuse list_evidence/get_evidence before recapturing. Append screenshot reviews with review_evidence; export selected IDs with export_evidence for offline review. Review status is not vulnerability validation. Nothing is captured on connection.",
     },
   );
   server.registerTool(
@@ -384,9 +391,19 @@ export function createServer(service = new CaptureService(), version = "dev") {
     "select_capture_region",
     {
       description:
-        "Open the capture workspace with a window/display preview, saved profiles, target selection, full-image selection and settings. Confirm returns a region and optionally creates a profile; Capture and save persists evidence. Each interactive step expires after 300 seconds.",
+        "Required confirmation step for suggested natural-language crops. First inspect capture_window(persist=false, include_image=true) without crop/profile. Send request and suggestion using that preview hash and normalized top-left coordinates; stale suggestions are discarded. The server does not infer semantics itself. Open the capture workspace with a window/display preview, saved profiles, target selection, full-image selection and settings. Confirm returns a region and optionally creates a profile; Capture and save persists evidence. Each interactive step expires after 300 seconds.",
       inputSchema: {
         ...windowFields,
+        request: z
+          .string()
+          .trim()
+          .min(1)
+          .max(500)
+          .optional()
+          .describe(
+            "User's intended content, displayed in the confirmation dialog.",
+          ),
+        suggestion: selectionSuggestionSchema.optional(),
         case_id: z.string().trim().max(120).optional(),
         display: z.number().int().positive().optional(),
         name: profileName.optional(),

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0
+
+- Accept agent-proposed regions tied to an inspected preview hash, with the original request and explanation in the editable confirmation dialog. Discard stale proposals.
+- Advertise the inspect/propose/confirm workflow and per-item visual verification explicitly in MCP instructions and schemas.
+- Add opt-in `reject_same_as` to reject identical batch screenshots before persistence.
+
 ## 0.7.1
 
 - Generate a timestamp + UUID project name when the project is empty, recording it in evidence metadata.

@@ -28,6 +28,7 @@ import { ScreenshotError } from "./errors.js";
 const exec = promisify(execFile);
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export interface CaptureOptions extends EvidenceContext {
+  reject_same_as?: string[];
   region?: Region;
   profile?: string;
   window_id?: number;
@@ -284,6 +285,16 @@ export class CaptureService {
           : "display_selected",
         warnings,
       };
+      for (const id of options.reject_same_as ?? []) {
+        const previous = await this.store.get(id);
+        if (previous.sha256 === meta.sha256)
+          throw new ScreenshotError(
+            "DUPLICATE_CAPTURE",
+            "Image matches previous evidence " +
+              id +
+              ". Nothing saved. Select and visually verify the next item before retrying.",
+          );
+      }
       const context: EvidenceContext = Object.fromEntries(
         Object.entries({
           case_id: options.case_id,
