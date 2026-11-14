@@ -66,7 +66,7 @@ codex mcp get screenshot
 codex mcp list
 ```
 
-Restart Codex, then use `/mcp` to check the active connection. This version exposes **16 tools**. Ask Codex to call `get_capture_status` first, then `list_windows` to identify the window to capture.
+Restart Codex, then use `/mcp` to check the active connection. This version exposes **17 tools**. Ask the client to read `get_capture_guide`, then call `get_capture_status` and `list_windows` to identify the window to capture.
 
 The CLI registers the server; you do not need to run `npm start` in a separate terminal. Codex starts the stdio process when it connects. If macOS denies screen capture, grant recording permission to the application launching the MCP and restart it.
 
@@ -107,19 +107,25 @@ Find your Node executable with `command -v node`. Restart or reconnect your MCP 
 
 ## Tools
 
-| Tool                      | Purpose                                                                                    |
-| ------------------------- | ------------------------------------------------------------------------------------------ |
-| `get_capture_status`      | Check permissions, evidence directory, and queue size.                                     |
-| `list_windows`            | Discover visible, non-minimized OS windows with IDs, app names, titles, and bounds.        |
-| `list_displays`           | List active monitors for explicit whole-display capture.                                   |
-| `capture_window`          | Capture one window by ID or a unique app/title selection.                                  |
-| `screenshot_app`          | Capture a window belonging to an exact app name or bundle ID.                              |
-| `capture_burp_screenshot` | Capture a Burp Suite window, with optional case/exchange metadata.                         |
-| `take_screenshot`         | Capture an entire monitor, including other visible applications.                           |
-| `list_evidence`           | Browse saved evidence summaries with filtering and pagination.                             |
-| `get_evidence`            | Verify and retrieve a saved record, optionally including its image and review history.     |
-| `review_evidence`         | Append a screenshot-quality review, keeping originals unchanged.                           |
-| `export_evidence`         | Export selected evidence to an offline HTML/Markdown package with originals and checksums. |
+| Tool                       | Purpose                                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------------------ |
+| `get_capture_guide`        | Read the complete AI-client workflow, examples and recovery guidance without capturing.    |
+| `select_capture_region`    | Open user confirmation for a suggested or manual crop; optionally save evidence.           |
+| `capture_frontmost_window` | Capture the frontmost app when it has a unique visible window.                             |
+| `list_capture_profiles`    | List fixed geometric profiles; these do not adapt to content.                              |
+| `save_capture_profile`     | Create an explicitly requested fixed geometric profile.                                    |
+| `delete_capture_profile`   | Remove a named profile without deleting evidence.                                          |
+| `get_capture_status`       | Check permissions, evidence directory, and queue size.                                     |
+| `list_windows`             | Discover visible, non-minimized OS windows with IDs, app names, titles, and bounds.        |
+| `list_displays`            | List active monitors for explicit whole-display capture.                                   |
+| `capture_window`           | Capture one window by ID or a unique app/title selection.                                  |
+| `screenshot_app`           | Capture a window belonging to an exact app name or bundle ID.                              |
+| `capture_burp_screenshot`  | Capture a Burp Suite window, with optional case/exchange metadata.                         |
+| `take_screenshot`          | Capture an entire monitor, including other visible applications.                           |
+| `list_evidence`            | Browse saved evidence summaries with filtering and pagination.                             |
+| `get_evidence`             | Verify and retrieve a saved record, optionally including its image and review history.     |
+| `review_evidence`          | Append a screenshot-quality review, keeping originals unchanged.                           |
+| `export_evidence`          | Export selected evidence to an offline HTML/Markdown package with originals and checksums. |
 
 Capture tools are annotated as non-destructive writes because they save files. They are not marked read-only merely because they do not interact with the target application.
 
@@ -425,3 +431,13 @@ For distinct-item batches, select and visually verify **each** item. Pass previo
 Reconnect the MCP client after upgrading to refresh tool schemas and server instructions.
 
 Suggested selections reuse the exact inspected preview in the same connected MCP session (maximum four uncropped ephemeral images, five-minute expiry). Keep that session open between preview and selector calls. Window identity and bounds must still match. The preview stays frozen; Capturar e salvar takes a fresh screenshot after confirmation.
+
+### Dynamic crops versus fixed profiles
+
+A content-fitted suggestion is for **one capture**. For every new payload, response or item, inspect a fresh preview and recompute the useful visible area; leave `name` and `profile` unset. Confirmation does not create a profile unless the user names one. Profiles store fixed coordinates, not semantic rules, and do not grow with the response. Save/reuse one only when the user explicitly wants a fixed region. Text outside the visible viewport is not included in a screenshot.
+
+## Starting a new AI session
+
+Call `get_capture_guide` first: this read-only tool returns the self-contained workflow, coordinate formula, tool-call examples, client/server responsibilities and recovery steps. The same core instructions are advertised during MCP initialization. No conversation history is required. A vision-capable client is needed for automatic suggestions; otherwise use manual selection. Navigation needs a separate application connector or UI tool.
+
+Keep the connection alive between preview and selector. Configure an interactive tool timeout of at least 330 seconds per step. After confirmation, inspect the tool result and retrieve the saved image rather than taking another screenshot. A selector opened successfully is not yet a saved image.

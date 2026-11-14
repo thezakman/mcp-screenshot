@@ -73,7 +73,7 @@ do {
         if let request=config["request"] as? String { section("PEDIDO",label(request,11)) }
         if let reason=config["suggestion_reason"] as? String {
             section("SELEÇÃO SUGERIDA · REVISE",label(reason,11))
-            add(label("Confirme ou ajuste o recorte antes de salvar.",11))
+            add(label("Recorte para esta captura. Um novo conteúdo precisa de uma nova sugestão.",11))
         }
         let targets=NSPopUpButton()
         targets.lineBreakMode = .byTruncatingMiddle
@@ -88,11 +88,11 @@ do {
         names.addItem(withTitle:"Seleção livre")
         for profile in config["profiles"] as? [[String:Any]] ?? [] { names.addItem(withTitle:profile["name"] as? String ?? "") }
         if let current=config["name"] as? String,names.itemTitles.contains(current) {names.selectItem(withTitle:current)}
-        names.target=region; names.action=#selector(RegionView.loadProfile(_:)); section("CARREGAR PERFIL",names)
+        names.target=region; names.action=#selector(RegionView.loadProfile(_:)); section("CARREGAR REGIÃO FIXA",names)
         let name=NSTextField()
-        name.placeholderString="Opcional · ex.: burp-response"; name.stringValue=config["name"] as? String ?? ""
+        name.placeholderString="Opcional · salvar região fixa"; name.stringValue=config["name"] as? String ?? ""
         name.heightAnchor.constraint(equalToConstant:28).isActive=true; region.nameField=name
-        name.toolTip="Nome para salvar a seleção. Use letras minúsculas, números e hífens."; section("SALVAR SELEÇÃO COMO",name)
+        name.toolTip="Salva coordenadas fixas; não se adapta ao tamanho de novos payloads ou respostas. Deixe vazio para capturar somente agora."; section("SALVAR REGIÃO FIXA COMO",name)
         let all=button("Imagem inteira",#selector(RegionView.selectAllImage))
         let reset=button("Limpar região",#selector(RegionView.resetSelection))
         let row=NSStackView(views:[all,reset]); row.orientation = .horizontal; row.distribution = .fillEqually; row.spacing=8

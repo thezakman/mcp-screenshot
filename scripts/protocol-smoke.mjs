@@ -13,7 +13,7 @@ try {
     }),
   );
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 16);
+  assert.equal(tools.length, 17);
   assert.ok(tools.some((t) => t.name === "capture_burp_screenshot"));
   assert.ok(
     tools
@@ -25,7 +25,13 @@ try {
       )
       .every((t) => t.annotations.readOnlyHint === false),
   );
-  console.log("stdio handshake and 16 tool schemas verified");
+  assert.ok(client.getInstructions().includes("get_capture_guide"));
+  const guide = await client.callTool({
+    name: "get_capture_guide",
+    arguments: {},
+  });
+  assert.ok(JSON.parse(guide.content[0].text).workflow.length >= 7);
+  console.log("stdio handshake, guide and 17 tool schemas verified");
 } finally {
   await client.close();
 }

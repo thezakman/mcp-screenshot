@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.2
+
+- Expose a self-contained read-only capture guide and structured initialization instructions for fresh AI sessions, including coordinate conversion, confirmation lifecycle and recovery.
+- Distinguish one-off content-fitted suggestions from explicitly requested fixed geometric profiles in UI and tool schemas.
+- Support duplicate guards on captures saved through the interactive selector.
+
 ## 0.8.1
 
 - Reuse the exact inspected ephemeral preview for suggested selections in the same MCP session (up to four previews, five-minute expiry), validating window identity and bounds. Dynamic counters no longer invalidate the selection.

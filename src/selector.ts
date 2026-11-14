@@ -43,6 +43,7 @@ const actionSchema = z.object({
 export async function runSelector(
   service: CaptureService,
   initial: {
+    reject_same_as?: string[];
     request?: string;
     suggestion?: z.infer<typeof selectionSuggestionSchema>;
     case_id?: string;
@@ -56,7 +57,7 @@ export async function runSelector(
   signal: AbortSignal,
 ) {
   const profiles = new ProfileStore(profilesRoot());
-  const { request, suggestion, ...captureTarget } = initial;
+  const { request, suggestion, reject_same_as, ...captureTarget } = initial;
   let target = { ...captureTarget };
   let pendingSuggestion = suggestion;
   let suggestionReason: string | undefined;
@@ -211,6 +212,7 @@ export async function runSelector(
                 name: undefined,
                 profile: undefined,
                 region,
+                reject_same_as,
                 persist: true,
                 include_image: false,
               } as Parameters<CaptureService["capture"]>[0],

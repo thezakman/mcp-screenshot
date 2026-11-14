@@ -44,6 +44,7 @@ describe("MCP protocol", () => {
           "review_evidence",
           "export_evidence",
           "get_capture_status",
+          "get_capture_guide",
           "get_evidence",
           "list_displays",
           "list_evidence",
@@ -53,8 +54,18 @@ describe("MCP protocol", () => {
         ].sort(),
       );
       expect(client.getInstructions()).toContain(
-        "never claim a batch complete",
+        "Never claim a batch complete",
       );
+      const guideResult = await client.callTool({
+        name: "get_capture_guide",
+        arguments: {},
+      });
+      const guide = JSON.parse(
+        (guideResult.content as { text: string }[])[0].text,
+      );
+      expect(guide.workflow.join(" ")).toContain("SAME MCP server connection");
+      expect(guide.fixed_profiles).toContain("fixed coordinates only");
+      expect(backend.capture).not.toHaveBeenCalled();
       const selector = tools.find((t) => t.name === "select_capture_region")!;
       expect(selector.inputSchema.properties).toHaveProperty("suggestion");
       expect(selector.inputSchema.properties).toHaveProperty("request");

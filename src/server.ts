@@ -1,3 +1,4 @@
+import { captureGuide, captureInstructions } from "./workflow.js";
 import { runSelector, selectionSuggestionSchema } from "./selector.js";
 import { profilesRoot } from "./settings.js";
 import {
@@ -33,7 +34,7 @@ const evidenceFields = {
   profile: profileName
     .optional()
     .describe(
-      "Saved region profile; requires matching app and window dimensions.",
+      "Fixed geometric region; does not adapt to payload/response length. Use only when the user requests this fixed region; requires matching app and window dimensions.",
     ),
   detail: detailField,
   persist: z
@@ -120,9 +121,18 @@ export function createServer(service = new CaptureService(), version = "dev") {
   const server = new McpServer(
     { name: "mcp-screenshot", version },
     {
-      instructions:
-        "For natural-language region requests, inspect a fresh uncropped preview with capture_window(persist=false, include_image=true), infer the requested visible region, then call select_capture_region with request and suggestion (normalized top-left region, source_sha256 from that preview, reason). The server retains up to four uncropped ephemeral previews for five minutes in the same MCP session; the dialog reuses the exact inspected preview when window identity/bounds still match. Keep the MCP session connected between preview and selector. The native dialog always lets the user confirm or adjust before saving. If unsure, omit suggestion and let the user draw; never invent coordinates. Reuse only a profile appropriate to the current internal layout (Burp Organizer is different from Proxy); app and window size alone do not establish compatibility. For multiple items, select each item using its application tools/UI and verify the actual rendered request/response before capture. Pass previous evidence IDs in reject_same_as, inspect each saved image, and never claim a batch complete from tool success or accessibility text alone. A different hash does not prove correct identity. Use list_windows then capture_window with window_id and expected_window_token. Captures save PNG + JSON locally; include_image is opt-in. Confirm content is visible: captures do not select tabs or verify exchange IDs. Reuse list_evidence/get_evidence before recapturing. Append screenshot reviews with review_evidence; export selected IDs with export_evidence for offline review. Review status is not vulnerability validation. Nothing is captured on connection.",
+      instructions: captureInstructions,
     },
+  );
+  server.registerTool(
+    "get_capture_guide",
+    {
+      description:
+        "Read first: complete AI-client workflow for natural-language crops, exact-preview reuse, user confirmation, fixed profiles, batch verification and recovery. Includes example tool calls. No capture or UI interaction.",
+      inputSchema: {},
+      annotations: readAnnotations,
+    },
+    async () => textResult(captureGuide),
   );
   server.registerTool(
     "get_capture_status",
@@ -391,7 +401,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
     "select_capture_region",
     {
       description:
-        "Required confirmation step for suggested natural-language crops. First inspect capture_window(persist=false, include_image=true) without crop/profile. Send request and suggestion using that preview hash and normalized top-left coordinates; stale suggestions are discarded. The server does not infer semantics itself. Open the capture workspace with a window/display preview, saved profiles, target selection, full-image selection and settings. Confirm returns a region and optionally creates a profile; Capture and save persists evidence. Each interactive step expires after 300 seconds.",
+        "Required confirmation step for suggested natural-language crops. First inspect capture_window(persist=false, include_image=true) without crop/profile. Send request and suggestion using that preview hash and normalized top-left coordinates; stale suggestions are discarded. The server does not infer semantics itself. Open the capture workspace with a window/display preview, saved profiles, target selection, full-image selection and settings. Confirm returns a region and optionally creates a profile; Capture and save persists evidence. Keep the same connection as the preview. Allow at least 330000 ms client timeout per interactive step (settings can add steps). A metadata.persisted=true result means already saved; region-only means selection confirmed, not saved. Read get_capture_guide for the full workflow.",
       inputSchema: {
         ...windowFields,
         request: z
@@ -404,9 +414,14 @@ export function createServer(service = new CaptureService(), version = "dev") {
             "User's intended content, displayed in the confirmation dialog.",
           ),
         suggestion: selectionSuggestionSchema.optional(),
+        reject_same_as: evidenceFields.reject_same_as,
         case_id: z.string().trim().max(120).optional(),
         display: z.number().int().positive().optional(),
-        name: profileName.optional(),
+        name: profileName
+          .optional()
+          .describe(
+            "Optional fixed geometric profile name. Omit for dynamic content-fitted crops; supply only when the user explicitly asks to save/reuse a fixed region.",
+          ),
       },
       annotations: captureAnnotations,
     },

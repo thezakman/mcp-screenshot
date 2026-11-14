@@ -194,3 +194,74 @@ it("clears a suggestion when the user changes the target", async () => {
     vi.mocked(selectRegion).mock.calls[1][2]?.suggestion_reason,
   ).toBeUndefined();
 });
+
+it("does not reuse or create a geometric profile for a dynamic content suggestion", async () => {
+  const profiles = new ProfileStore(state.root);
+  const fixed = { x: 0, y: 0, width: 1, height: 1 };
+  await profiles.save({
+    name: "burp-repeater",
+    version: 1,
+    app: WINDOW.bundleId,
+    width: WINDOW.bounds.width,
+    height: WINDOW.bounds.height,
+    region: fixed,
+  });
+  const preview = await service.capture({
+    window_id: WINDOW.id,
+    persist: false,
+    include_image: true,
+  });
+  const dynamic = { x: 0, y: 0, width: 0.5, height: 0.5 };
+  vi.mocked(selectRegion).mockResolvedValue({
+    action: "confirm",
+    region: dynamic,
+  });
+  const result = await runSelector(
+    service,
+    {
+      window_id: WINDOW.id,
+      request: "request e response atuais",
+      suggestion: {
+        region: dynamic,
+        source_sha256: preview.metadata.sha256,
+        reason: "conteudo atual",
+      },
+    },
+    new AbortController().signal,
+  );
+  expect(vi.mocked(selectRegion).mock.calls[0][2]?.name).toBe("");
+  expect(vi.mocked(selectRegion).mock.calls[0][2]?.initial_region).toEqual(
+    dynamic,
+  );
+  expect(result.profile).toBeUndefined();
+  expect(await profiles.list()).toHaveLength(1);
+  expect((await profiles.get("burp-repeater")).region).toEqual(fixed);
+});
+
+it("applies the batch duplicate guard only when saving, and surfaces failures for correction", async () => {
+  const originalCapture = service.capture.bind(service);
+  const calls = vi
+    .spyOn(service, "capture")
+    .mockImplementation(async (options, signal) => {
+      if (options.persist === true)
+        throw new Error(
+          "DUPLICATE_CAPTURE: Nothing saved. Select the next item.",
+        );
+      return originalCapture(options, signal);
+    });
+  const region = { x: 0, y: 0, width: 1, height: 1 };
+  vi.mocked(selectRegion)
+    .mockResolvedValueOnce({ action: "capture", region })
+    .mockResolvedValueOnce({ action: "confirm", region });
+  await runSelector(
+    service,
+    { window_id: WINDOW.id, reject_same_as: ["previous-id"] },
+    new AbortController().signal,
+  );
+  expect(calls.mock.calls[0][0].reject_same_as).toBeUndefined();
+  expect(calls.mock.calls[1][0].reject_same_as).toEqual(["previous-id"]);
+  expect(vi.mocked(selectRegion).mock.calls[1][2]?.error).toContain(
+    "DUPLICATE_CAPTURE",
+  );
+  expect((await service.store.list()).items).toHaveLength(0);
+});
