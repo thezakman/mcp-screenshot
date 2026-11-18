@@ -373,3 +373,147 @@ it("persists caller context through interactive confirmation", async () => {
   });
   expect(saved.association).toBe("caller_supplied_unverified");
 });
+
+it("rejects a concurrent session before capturing another preview and releases the session lock", async () => {
+  let release!: (value: unknown) => void;
+  let opened!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    opened = resolve;
+  });
+  vi.mocked(selectRegion).mockImplementationOnce(() => {
+    opened();
+    return new Promise((resolve) => {
+      release = resolve;
+    });
+  });
+  const previews = vi.spyOn(service, "localPreview");
+  const first = runSelector(
+    service,
+    { window_id: WINDOW.id },
+    new AbortController().signal,
+  );
+  await ready;
+  await expect(
+    runSelector(
+      service,
+      { window_id: WINDOW.id },
+      new AbortController().signal,
+    ),
+  ).rejects.toMatchObject({ code: "SELECTION_BUSY", retryable: true });
+  expect(previews).toHaveBeenCalledTimes(1);
+  const action = {
+    action: "confirm",
+    region: { x: 0, y: 0, width: 1, height: 1 },
+  };
+  release(action);
+  await first;
+  vi.mocked(selectRegion).mockResolvedValueOnce(action);
+  await expect(
+    runSelector(
+      service,
+      { window_id: WINDOW.id },
+      new AbortController().signal,
+    ),
+  ).resolves.toHaveProperty("region");
+});
+it("does not save a profile if cancellation arrives with the dialog response", async () => {
+  const controller = new AbortController();
+  vi.mocked(selectRegion).mockImplementationOnce(async () => {
+    controller.abort(new Error("Cancelled by client"));
+    return {
+      action: "confirm",
+      name: "must-not-save",
+      region: { x: 0, y: 0, width: 1, height: 1 },
+    };
+  });
+  await expect(
+    runSelector(service, { window_id: WINDOW.id }, controller.signal),
+  ).rejects.toThrow("Cancelled by client");
+  expect(await new ProfileStore(state.root).list()).toEqual([]);
+  expect((await service.store.list()).items).toEqual([]);
+  vi.mocked(selectRegion).mockResolvedValueOnce({
+    action: "confirm",
+    region: { x: 0, y: 0, width: 1, height: 1 },
+  });
+  await expect(
+    runSelector(
+      service,
+      { window_id: WINDOW.id },
+      new AbortController().signal,
+    ),
+  ).resolves.toHaveProperty("region");
+});
+it("pins an app-selected preview to the inspected OS window when refreshing", async () => {
+  const { windowToken } = await import("../src/native.js");
+  const previews = vi.spyOn(service, "localPreview");
+  vi.mocked(selectRegion)
+    .mockResolvedValueOnce({ action: "refresh" })
+    .mockResolvedValueOnce({
+      action: "confirm",
+      region: { x: 0, y: 0, width: 1, height: 1 },
+    });
+  await runSelector(
+    service,
+    { app_name: WINDOW.app },
+    new AbortController().signal,
+  );
+  expect(previews.mock.calls[1][0]).toMatchObject({
+    window_id: WINDOW.id,
+    expected_window_token: windowToken(WINDOW),
+  });
+  expect(previews.mock.calls[1][0].app_name).toBeUndefined();
+});
+
+it("stores an editable visual description and attributes user edits", async () => {
+  const description = {
+    text: "Texto monoespaçado sobre fundo escuro.",
+    language: "pt-BR",
+    source: "ai" as const,
+  };
+  vi.mocked(selectRegion).mockResolvedValue({
+    action: "capture",
+    region: { x: 0, y: 0, width: 1, height: 1 },
+    description_text:
+      "Uma linha de texto em português sobre fundo verde-escuro.",
+    description_language: "pt-BR",
+  });
+  const result = await runSelector(
+    service,
+    { window_id: WINDOW.id, description },
+    new AbortController().signal,
+  );
+  expect(vi.mocked(selectRegion).mock.calls[0][2]?.description).toEqual(
+    description,
+  );
+  if (!("metadata" in result)) throw new Error("Missing saved evidence");
+  expect(
+    (await service.store.get(result.metadata.id)).context.description,
+  ).toEqual({
+    text: "Uma linha de texto em português sobre fundo verde-escuro.",
+    language: "pt-BR",
+    source: "user",
+  });
+});
+it("refreshes even when the discarded description has an invalid language", async () => {
+  vi.mocked(selectRegion)
+    .mockResolvedValueOnce({
+      action: "refresh",
+      description_text: "Old response",
+      description_language: "invalid language!",
+    })
+    .mockResolvedValueOnce({
+      action: "capture",
+      region: { x: 0, y: 0, width: 1, height: 1 },
+    });
+  const result = await runSelector(
+    service,
+    {
+      window_id: WINDOW.id,
+      description: { text: "Old response", language: "en", source: "ai" },
+    },
+    new AbortController().signal,
+  );
+  expect(vi.mocked(selectRegion).mock.calls[1][2]?.description).toBeUndefined();
+  if (!("metadata" in result)) throw new Error("Missing saved evidence");
+  expect(result.metadata.context.description).toBeUndefined();
+});

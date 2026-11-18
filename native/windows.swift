@@ -44,8 +44,14 @@ do {
         sidebar.hasVerticalScroller=true; sidebar.autohidesScrollers=true
         sidebar.drawsBackground=true; sidebar.backgroundColor = .windowBackgroundColor
         container.addSubview(sidebar)
+        let footer=NSStackView()
+        footer.orientation = .vertical; footer.spacing=6
+        footer.edgeInsets=NSEdgeInsets(top:8,left:18,bottom:8,right:18)
+        footer.translatesAutoresizingMaskIntoConstraints=false
+        container.addSubview(footer)
         NSLayoutConstraint.activate([
-            sidebar.leadingAnchor.constraint(equalTo:container.leadingAnchor),sidebar.topAnchor.constraint(equalTo:container.topAnchor),sidebar.bottomAnchor.constraint(equalTo:container.bottomAnchor),sidebar.widthAnchor.constraint(equalToConstant:320),
+            sidebar.leadingAnchor.constraint(equalTo:container.leadingAnchor),sidebar.topAnchor.constraint(equalTo:container.topAnchor),sidebar.bottomAnchor.constraint(equalTo:footer.topAnchor),sidebar.widthAnchor.constraint(equalToConstant:320),
+            footer.leadingAnchor.constraint(equalTo:sidebar.leadingAnchor),footer.trailingAnchor.constraint(equalTo:sidebar.trailingAnchor),footer.bottomAnchor.constraint(equalTo:container.bottomAnchor),
             preview.leadingAnchor.constraint(equalTo:sidebar.trailingAnchor),preview.trailingAnchor.constraint(equalTo:container.trailingAnchor),preview.topAnchor.constraint(equalTo:container.topAnchor),preview.bottomAnchor.constraint(equalTo:container.bottomAnchor)
         ])
         let document=FlippedView()
@@ -69,11 +75,9 @@ do {
             control.controlSize = .large; control.heightAnchor.constraint(equalToConstant:34).isActive=true; return control
         }
         add(label("Nova captura",22,.semibold))
-        let subtitle=label("Escolha a origem, ajuste a região e salve.",12); subtitle.textColor = .secondaryLabelColor; add(subtitle); stack.setCustomSpacing(18,after:subtitle)
         if let request=config["request"] as? String { section("PEDIDO",label(request,11)) }
         if let reason=config["suggestion_reason"] as? String {
-            section("SELEÇÃO SUGERIDA · REVISE",label(reason,11))
-            add(label("Recorte para esta captura. Um novo conteúdo precisa de uma nova sugestão.",11))
+            section("RECORTE SUGERIDO",label(reason,11))
         }
         let targets=NSPopUpButton()
         targets.lineBreakMode = .byTruncatingMiddle
@@ -91,18 +95,39 @@ do {
         names.addItem(withTitle:"Seleção livre")
         for profile in config["profiles"] as? [[String:Any]] ?? [] { names.addItem(withTitle:profile["name"] as? String ?? "") }
         if let current=config["name"] as? String,names.itemTitles.contains(current) {names.selectItem(withTitle:current)}
-        names.target=region; names.action=#selector(RegionView.loadProfile(_:)); section("CARREGAR REGIÃO FIXA",names)
+        names.target=region; names.action=#selector(RegionView.loadProfile(_:)); section("REGIÃO FIXA",names)
         let name=NSTextField()
-        name.placeholderString="Opcional · salvar região fixa"; name.stringValue=config["name"] as? String ?? ""
+        name.placeholderString="Opcional"; name.stringValue=config["name"] as? String ?? ""
         name.heightAnchor.constraint(equalToConstant:28).isActive=true; region.nameField=name
-        name.toolTip="Salva coordenadas fixas; não se adapta ao tamanho de novos payloads ou respostas. Deixe vazio para capturar somente agora."; section("SALVAR REGIÃO FIXA COMO",name)
+        name.toolTip="Salva coordenadas fixas; não se adapta ao tamanho de novos payloads ou respostas. Deixe vazio para capturar somente agora."; section("NOME DO PERFIL",name)
         let all=button("Imagem inteira",#selector(RegionView.selectAllImage))
         let reset=button("Limpar região",#selector(RegionView.resetSelection))
         let row=NSStackView(views:[all,reset]); row.orientation = .horizontal; row.distribution = .fillEqually; row.spacing=8
         add(row)
         let status=label("Desenhe uma região",13,.medium); region.statusLabel=status; add(status)
-        let instructions=label("Arraste o centro para mover e as alças para redimensionar. Setas ajustam a posição; Shift aumenta o passo.",11)
-        instructions.textColor = .secondaryLabelColor; add(instructions); stack.setCustomSpacing(18,after:instructions)
+        let instructions=label("Arraste para mover. Use as alças para ajustar.",11)
+        instructions.toolTip="Use as setas para mover e Shift para aumentar o passo."
+        instructions.textColor = .secondaryLabelColor; add(instructions)
+        let descriptionConfig=config["description"] as? [String:Any] ?? [:]
+        let description=NSTextField()
+        description.placeholderString="Descreva o recorte (opcional)"
+        description.toolTip="A IA pode sugerir uma descrição ao abrir a prévia. Ao atualizar a imagem, revise o recorte e escreva uma nova descrição."
+        description.stringValue=descriptionConfig["text"] as? String ?? ""
+        description.cell?.wraps=true; description.cell?.isScrollable=false
+        description.heightAnchor.constraint(equalToConstant:56).isActive=true
+        region.descriptionField=description
+        let language=NSTextField()
+        language.stringValue=descriptionConfig["language"] as? String ?? "pt-BR"
+        language.placeholderString="pt-BR, en…"
+        language.heightAnchor.constraint(equalToConstant:26).isActive=true
+        region.descriptionLanguageField=language
+        language.widthAnchor.constraint(equalToConstant:68).isActive=true
+        language.toolTip="Idioma da descrição"; language.setAccessibilityLabel("Idioma da descrição")
+        let heading=label("DESCRIÇÃO",11,.semibold); heading.textColor = .secondaryLabelColor
+        let languageHeading=label("IDIOMA",11,.semibold); languageHeading.textColor = .secondaryLabelColor
+        let descriptionHeader=NSStackView(views:[heading,NSView(),languageHeading,language])
+        descriptionHeader.spacing=6
+        add(descriptionHeader); stack.setCustomSpacing(4,after:descriptionHeader); add(description)
         let project=NSTextField()
         project.placeholderString="Automático · data + UUID"; project.stringValue=config["case_id"] as? String ?? ""
         project.heightAnchor.constraint(equalToConstant:28).isActive=true; region.projectField=project
@@ -110,17 +135,17 @@ do {
         let destination=NSTextField(labelWithString:config["destination"] as? String ?? "")
         destination.lineBreakMode = .byTruncatingMiddle; destination.font = .systemFont(ofSize:11); destination.toolTip=destination.stringValue
         section("PASTA BASE",destination)
-        let structure=label("Projeto → aplicativo → captura",11); structure.textColor = .secondaryLabelColor; add(structure)
-        let settings=button("Pasta e gerenciamento de perfis…",#selector(RegionView.settings)); add(settings)
+        let settings=button("Pasta e perfis…",#selector(RegionView.settings)); add(settings)
         let pin=NSButton(checkboxWithTitle:"Manter janela no topo",target:region,action:#selector(RegionView.togglePinned(_:)))
         pin.state = .on
-        stack.setCustomSpacing(20,after:settings)
         let capture=button("Capturar e salvar",#selector(RegionView.captureSelection))
-        capture.keyEquivalent="\r"; capture.toolTip="Faz uma nova captura e salva o screenshot na pasta de destino."; region.captureButton=capture; add(capture)
+        capture.keyEquivalent="\r"; capture.toolTip="Salva o recorte da prévia atual."; region.captureButton=capture; footer.addArrangedSubview(capture)
+        capture.widthAnchor.constraint(equalTo:footer.widthAnchor,constant:-36).isActive=true
         let save=button("Salvar apenas a seleção",#selector(RegionView.confirmSelection))
-        save.toolTip="Confirma a região e salva o perfil nomeado, sem criar screenshot."; region.confirmButton=save; add(save)
-        let cancel=button("Cancelar",#selector(RegionView.cancelSelection)); cancel.keyEquivalent="\u{1b}"; add(cancel)
-        stack.setCustomSpacing(16,after:cancel)
+        save.toolTip="Confirma a região e salva o perfil nomeado, sem criar screenshot."; region.confirmButton=save
+        let cancel=button("Cancelar",#selector(RegionView.cancelSelection)); cancel.keyEquivalent="\u{1b}"
+        let secondary=NSStackView(views:[save,cancel]); secondary.spacing=4
+        footer.addArrangedSubview(secondary)
         let pinRow=NSView()
         pin.translatesAutoresizingMaskIntoConstraints=false
         pinRow.addSubview(pin)
@@ -131,7 +156,7 @@ do {
             pin.leadingAnchor.constraint(greaterThanOrEqualTo:pinRow.leadingAnchor),
             pin.trailingAnchor.constraint(lessThanOrEqualTo:pinRow.trailingAnchor)
         ])
-        add(pinRow)
+        footer.addArrangedSubview(pinRow)
         if let r=config["initial_region"] as? [String:Double],let x=r["x"],let y=r["y"],let w=r["width"],let h=r["height"] {
             region.selection=NSRect(x:x*region.bounds.width,y:(1-y-h)*region.bounds.height,width:w*region.bounds.width,height:h*region.bounds.height)
         }
@@ -201,6 +226,8 @@ final class RegionView: NSView, NSWindowDelegate {
     var configuration: [String:Any] = [:]
     weak var nameField: NSTextField?
     weak var projectField: NSTextField?
+    weak var descriptionField: NSTextField?
+    weak var descriptionLanguageField: NSTextField?
     var start = NSPoint.zero
     var original = NSRect.zero
     var selection = NSRect.zero
@@ -293,6 +320,8 @@ final class RegionView: NSView, NSWindowDelegate {
         var response=value
         response["draft_name"] = nameField?.stringValue ?? ""
         response["case_id"] = projectField?.stringValue ?? ""
+        response["description_text"] = descriptionField?.stringValue ?? ""
+        response["description_language"] = descriptionLanguageField?.stringValue ?? "pt-BR"
         if valid && response["region"] == nil {response["region"]=selectedRegion()}
         do { try emit(response); exit(0) }
         catch { FileHandle.standardError.write(Data("Could not return selection\n".utf8)); exit(1) }
@@ -365,23 +394,119 @@ final class RegionView: NSView, NSWindowDelegate {
 }
 
 final class FlippedView:NSView { override var isFlipped:Bool {true} }
+final class PreviewScrollView: NSScrollView {
+    var stepZoom: ((Int, NSPoint) -> Void)?
+    private var accumulated: CGFloat = 0
+
+    override func scrollWheel(with event: NSEvent) {
+        if event.modifierFlags.contains(.shift) || abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
+            accumulated = 0
+            super.scrollWheel(with: event)
+            return
+        }
+        guard event.momentumPhase.isEmpty else { return }
+        if event.phase == .began { accumulated = 0 }
+        let delta = event.scrollingDeltaY
+        guard delta != 0 else { return }
+        if event.hasPreciseScrollingDeltas {
+            if accumulated * delta < 0 { accumulated = 0 }
+            accumulated += delta
+            guard abs(accumulated) >= 42 else { return }
+            accumulated = 0
+        }
+        stepZoom?(delta > 0 ? 1 : -1, event.locationInWindow)
+    }
+}
+
 final class PreviewPane:NSView {
     let region:RegionView
-    let caption=NSTextField(labelWithString:"PRÉVIA  ·  Imagem congelada")
-    init(region:RegionView) {
-        self.region=region; super.init(frame:.zero)
-        wantsLayer=true; layer?.backgroundColor=NSColor(calibratedWhite:0.09,alpha:1).cgColor
-        caption.font = .systemFont(ofSize:11,weight:.semibold); caption.textColor = .lightGray
-        addSubview(caption); addSubview(region)
+    private let viewport = PreviewScrollView()
+    private let canvas = NSView()
+    private let caption = NSTextField(labelWithString: "Prévia congelada")
+    private let zoom = NSPopUpButton()
+    private var zoomFactor: CGFloat = 1
+    private var centerOnSelection = false
+
+    init(region: RegionView) {
+        self.region = region
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(calibratedWhite: 0.09, alpha: 1).cgColor
+        caption.font = .systemFont(ofSize: 11, weight: .semibold)
+        caption.textColor = .lightGray
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let stamp = region.configuration["captured_at"] as? String, let date = parser.date(from: stamp) {
+            caption.stringValue += " · " + DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .medium)
+        }
+
+        zoom.addItems(withTitles: ["Ajustar", "2×", "4×", "8×"])
+        zoom.toolTip = "Role sobre a imagem para ampliar ou reduzir. Shift + rolagem move a prévia."
+        zoom.setAccessibilityLabel("Zoom da prévia")
+        zoom.target = self
+        zoom.action = #selector(changeZoom)
+        viewport.stepZoom = { [weak self] step, point in self?.zoomAtCursor(step, point) }
+        viewport.drawsBackground = false
+        viewport.hasHorizontalScroller = true
+        viewport.hasVerticalScroller = true
+        viewport.autohidesScrollers = true
+        viewport.scrollerStyle = .overlay
+        viewport.documentView = canvas
+        canvas.addSubview(region)
+        addSubview(viewport)
+        addSubview(caption)
+        addSubview(zoom)
     }
-    required init?(coder:NSCoder) {fatalError()}
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func changeZoom() {
+        zoomFactor = [1, 2, 4, 8][zoom.indexOfSelectedItem]
+        centerOnSelection = true
+        needsLayout = true
+        window?.makeFirstResponder(region)
+    }
+
+    private func zoomAtCursor(_ step: Int, _ location: NSPoint) {
+        let index = min(zoom.numberOfItems - 1, max(0, zoom.indexOfSelectedItem + step))
+        let point = region.convert(location, from: nil)
+        guard index != zoom.indexOfSelectedItem, region.bounds.contains(point) else { return }
+        let unit = NSPoint(x: point.x / region.bounds.width, y: point.y / region.bounds.height)
+        zoom.selectItem(at: index)
+        changeZoom()
+        centerOnSelection = false
+        layoutSubtreeIfNeeded()
+        let clip = viewport.contentView
+        let current = region.convert(location, from: nil)
+        var proposed = clip.bounds
+        proposed.origin.x += unit.x * region.bounds.width - current.x
+        proposed.origin.y += unit.y * region.bounds.height - current.y
+        clip.scroll(to: clip.constrainBoundsRect(proposed).origin)
+        viewport.reflectScrolledClipView(clip)
+    }
+
     override func layout() {
         super.layout()
-        caption.frame=NSRect(x:24,y:bounds.height-34,width:max(1,bounds.width-48),height:18)
-        let available=NSSize(width:max(1,bounds.width-48),height:max(1,bounds.height-80))
-        let size=region.image.size
-        let scale=min(available.width/size.width,available.height/size.height)
-        let fitted=NSSize(width:size.width*scale,height:size.height*scale)
-        region.frame=NSRect(x:(bounds.width-fitted.width)/2,y:20+(available.height-fitted.height)/2,width:fitted.width,height:fitted.height)
+        caption.frame = NSRect(x: 24, y: bounds.height - 36, width: bounds.width - 160, height: 20)
+        zoom.frame = NSRect(x: bounds.width - 124, y: bounds.height - 40, width: 100, height: 28)
+        viewport.frame = NSRect(x: 24, y: 16, width: max(1, bounds.width - 48), height: max(1, bounds.height - 68))
+        let visible = viewport.contentSize
+        guard visible.width > 0, visible.height > 0 else { return }
+        let size = region.image.size
+        let scale = min(visible.width / size.width, visible.height / size.height) * zoomFactor
+        let fitted = NSSize(width: size.width * scale, height: size.height * scale)
+        canvas.setFrameSize(NSSize(width: max(visible.width, fitted.width), height: max(visible.height, fitted.height)))
+        region.frame = NSRect(x: (canvas.bounds.width - fitted.width) / 2, y: (canvas.bounds.height - fitted.height) / 2,
+                              width: fitted.width, height: fitted.height)
+        if centerOnSelection {
+            centerOnSelection = false
+            let focus = region.valid ? region.selection : region.bounds
+            let center = region.convert(NSPoint(x: focus.midX, y: focus.midY), to: canvas)
+            let clip = viewport.contentView
+            let proposed = NSRect(x: center.x - visible.width / 2, y: center.y - visible.height / 2,
+                                  width: visible.width, height: visible.height)
+            clip.scroll(to: clip.constrainBoundsRect(proposed).origin)
+            viewport.reflectScrolledClipView(clip)
+        }
     }
 }

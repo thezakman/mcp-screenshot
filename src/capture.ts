@@ -159,6 +159,7 @@ export class CaptureService {
     rejectSameAs: string[] = [],
     signal?: AbortSignal,
   ) {
+    const confirmedAt = new Date().toISOString();
     return this.queue.run(async () => {
       const source = Buffer.from(preview.image, "base64");
       if (pngInfo(source).sha256 !== preview.metadata.sha256)
@@ -167,6 +168,11 @@ export class CaptureService {
       const metadata: CaptureMetadata = {
         ...preview.metadata,
         ...pngInfo(data),
+        selection: {
+          method: "user_confirmed_frozen_preview",
+          source_sha256: preview.metadata.sha256,
+          confirmed_at: confirmedAt,
+        },
         crop: {
           region,
           source_width: preview.metadata.width,
@@ -372,6 +378,7 @@ export class CaptureService {
           case_id: options.case_id,
           label: options.label,
           note: options.note,
+          description: options.description,
           exchange_id: options.exchange_id,
           tags: options.tags,
         }).filter(([, v]) => v !== undefined),

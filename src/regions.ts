@@ -207,7 +207,9 @@ export async function selectRegion(
     await writeFile(config, JSON.stringify(context ?? {}), { mode: 0o600 });
     const result = await native<any>("select", [input, config], 300000, signal);
     if (result && typeof result === "object" && "cancelled" in result)
-      throw new Error("SELECTION_CANCELLED: no profile or evidence saved.");
+      throw new Error(
+        "SELECTION_CANCELLED: this selection was cancelled. Previously confirmed settings or profile-management changes remain applied.",
+      );
     if (context) return result;
     return regionSchema.parse(result);
   } finally {

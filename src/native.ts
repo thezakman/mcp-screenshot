@@ -83,13 +83,19 @@ export function selectWindow(
     );
   return matches[0];
 }
+function identityTitle(w: WindowInfo) {
+  // iTerm task progress uses these braille spinner frames; retain the actual title.
+  return w.bundleId === "com.googlecode.iterm2"
+    ? w.title.replace(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s+/, "")
+    : w.title;
+}
 export function sameWindow(a: WindowInfo, b: WindowInfo): boolean {
   return (
     a.id === b.id &&
     a.pid === b.pid &&
     a.app === b.app &&
     a.bundleId === b.bundleId &&
-    a.title === b.title &&
+    identityTitle(a) === identityTitle(b) &&
     JSON.stringify(a.bounds) === JSON.stringify(b.bounds)
   );
 }
@@ -102,7 +108,7 @@ export function windowToken(w: WindowInfo) {
         w.pid,
         w.app,
         w.bundleId,
-        w.title,
+        identityTitle(w),
         w.bounds.x,
         w.bounds.y,
         w.bounds.width,

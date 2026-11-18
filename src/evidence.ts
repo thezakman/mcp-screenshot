@@ -34,6 +34,16 @@ import {
 } from "./manifest.js";
 import { ScreenshotError } from "./errors.js";
 import type { WindowInfo } from "./native.js";
+async function resolveManifest(directory: string) {
+  const path = join(directory, "metadata.json");
+  try {
+    await lstat(path);
+    return path;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return join(directory, "evidence.json");
+  }
+}
 const ID_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_[0-9a-f-]{36}$/;
 const CAPTURE_FOLDER =
   /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-\d{3}(?:-[2-9]\d*|-1\d+)?$/;
@@ -46,6 +56,7 @@ export function captureFolder(at: string) {
 }
 export const DEFAULT_ROOT = join(homedir(), "Pictures", "mcp-screenshot");
 export interface EvidenceContext {
+  description?: { text: string; language: string; source: "ai" | "user" };
   case_id?: string;
   label?: string;
   note?: string;
@@ -53,6 +64,11 @@ export interface EvidenceContext {
   tags?: string[];
 }
 export interface CaptureMetadata {
+  selection?: {
+    method: "user_confirmed_frozen_preview";
+    source_sha256: string;
+    confirmed_at: string;
+  };
   crop?: {
     region: import("./regions.js").Region;
     source_width: number;
@@ -168,7 +184,7 @@ export class EvidenceStore {
         flag: "wx",
         mode: 0o600,
       });
-      await writeFile(join(stagedApp, "evidence.json"), manifest, {
+      await writeFile(join(stagedApp, "metadata.json"), manifest, {
         flag: "wx",
         mode: 0o600,
       });
@@ -190,7 +206,7 @@ export class EvidenceStore {
       if (!dir) throw new Error("CAPTURE_NAME_EXHAUSTED");
       await link(join(temp, evidence.image), join(dir, evidence.image));
       // The manifest is the commit marker: readers ignore folders without it.
-      await link(join(temp, "evidence.json"), join(dir, "evidence.json"));
+      await link(join(temp, "metadata.json"), join(dir, "metadata.json"));
     } catch (error) {
       if (dir) await rm(dir, { recursive: true, force: true });
       throw error;
@@ -200,11 +216,17 @@ export class EvidenceStore {
     return {
       ...evidence,
       path: join(dir!, evidence.image),
-      manifest_path: join(dir!, "evidence.json"),
+      manifest_path: join(dir!, "metadata.json"),
     };
   }
   private async locations(root: string) {
     const result = new Map<string, string>();
+    const ambiguous = new Set<string>();
+    const warnings: { path: string; code: string }[] = [];
+    const register = (id: string, path: string) => {
+      if (result.has(id) && result.get(id) !== path) ambiguous.add(id);
+      else result.set(id, path);
+    };
     // Bounded depth covers flat, app/ID, ID/app, and project/app/ID layouts.
     const visit = async (directory: string, depth: number) => {
       for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -215,43 +237,67 @@ export class EvidenceStore {
             const raw = JSON.parse(
               (
                 await readBounded(
-                  join(path, "evidence.json"),
+                  await resolveManifest(path),
                   MAX_MANIFEST_BYTES,
                 )
               ).toString(),
             );
-            if (typeof raw.id === "string" && ID_PATTERN.test(raw.id))
-              result.set(raw.id, path);
-          } catch (error) {
             if (
-              (error as NodeJS.ErrnoException).code !== "ENOENT" &&
-              !(error instanceof SyntaxError)
+              raw &&
+              typeof raw === "object" &&
+              typeof raw.id === "string" &&
+              ID_PATTERN.test(raw.id)
             )
-              throw error;
+              register(raw.id, path);
+            else
+              warnings.push({
+                path: relative(root, path),
+                code: "INVALID_MANIFEST",
+              });
+          } catch (error) {
+            // Missing commit markers are incomplete saves, not evidence.
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+              warnings.push({
+                path: relative(root, path),
+                code:
+                  error instanceof ScreenshotError
+                    ? error.code
+                    : "INVALID_MANIFEST",
+              });
           }
         } else if (ID_PATTERN.test(entry.name)) {
           const children = await readdir(path, { withFileTypes: true });
-          if (children.some((c) => c.isFile() && c.name === "evidence.json"))
-            result.set(entry.name, path);
+          if (
+            children.some(
+              (c) =>
+                c.isFile() &&
+                ["metadata.json", "evidence.json"].includes(c.name),
+            )
+          )
+            register(entry.name, path);
           else {
             const apps = children.filter(
               (c) => c.isDirectory() && /^[a-z0-9][a-z0-9-]*$/.test(c.name),
             );
-            let legacyApp: string | undefined;
+            const legacyApps: string[] = [];
             for (const app of apps) {
               const entries = await readdir(join(path, app.name), {
                 withFileTypes: true,
               });
               if (
-                entries.some((c) => c.isFile() && c.name === "evidence.json")
+                entries.some(
+                  (c) =>
+                    c.isFile() &&
+                    ["metadata.json", "evidence.json"].includes(c.name),
+                )
               ) {
-                legacyApp = join(path, app.name);
-                break;
+                legacyApps.push(join(path, app.name));
               }
             }
-            if (legacyApp) result.set(entry.name, legacyApp);
-            else if (depth < 2) await visit(path, depth + 1);
-            else result.set(entry.name, path);
+            if (legacyApps.length) {
+              for (const app of legacyApps) register(entry.name, app);
+            } else if (depth < 2) await visit(path, depth + 1);
+            else register(entry.name, path);
           }
         } else if (
           depth < 2 &&
@@ -263,7 +309,7 @@ export class EvidenceStore {
       }
     };
     await visit(root, 0);
-    return result;
+    return { locations: result, ambiguous, warnings };
   }
   private validId(id: string) {
     if (!ID_PATTERN.test(id))
@@ -279,10 +325,18 @@ export class EvidenceStore {
     includeHistory = false,
   ) {
     this.validId(id);
-    const root = await this.rootPath(),
-      directory = (await this.locations(root)).get(id) ?? join(root, id);
+    const root = await this.rootPath();
+    const inventory = await this.locations(root);
+    if (inventory.ambiguous.has(id))
+      throw new ScreenshotError(
+        "AMBIGUOUS_EVIDENCE",
+        "Multiple evidence folders claim ID " +
+          id +
+          ". Resolve the duplicate folders before reading, reviewing or exporting this ID; no copy was chosen automatically.",
+      );
+    const directory = inventory.locations.get(id) ?? join(root, id);
     await assertDirectory(directory);
-    const manifestPath = join(directory, "evidence.json");
+    const manifestPath = await resolveManifest(directory);
     const manifestBytes = await readBounded(manifestPath, MAX_MANIFEST_BYTES);
     const evidence = parseManifest(manifestBytes, id);
     const path = join(directory, "screenshot.png");
@@ -407,11 +461,14 @@ export class EvidenceStore {
         items: [],
         next_cursor: null,
         skipped: [],
+        discovery_warnings: [],
+        ambiguous_ids: [],
+        discovery_complete: true,
         ordering: "capture_time_ascending",
         integrity: "not_checked_use_get_evidence",
       };
     }
-    const locations = await this.locations(root);
+    const { locations, ambiguous, warnings } = await this.locations(root);
     const entries = [...locations.keys()]
       .sort()
       .filter((id) => !options.after || id > options.after);
@@ -435,10 +492,14 @@ export class EvidenceStore {
       cursor = id;
       try {
         this.validId(id);
+        if (ambiguous.has(id)) {
+          skipped.push(id);
+          continue;
+        }
         const dir = locations.get(id)!;
         await assertDirectory(dir);
         const item = parseManifest(
-          await readBounded(join(dir, "evidence.json"), MAX_MANIFEST_BYTES),
+          await readBounded(await resolveManifest(dir), MAX_MANIFEST_BYTES),
           id,
         );
         if (options.case_id && item.context?.case_id !== options.case_id)
@@ -453,6 +514,7 @@ export class EvidenceStore {
           ![
             item.context?.label,
             item.context?.note,
+            item.context?.description?.text,
             ...(item.context?.tags ?? []),
           ]
             .join(" ")
@@ -483,6 +545,10 @@ export class EvidenceStore {
       items,
       next_cursor: cursor && entries.some((id) => id > cursor!) ? cursor : null,
       skipped,
+      discovery_warnings: warnings,
+      ambiguous_ids: [...ambiguous].sort(),
+      discovery_complete:
+        warnings.length === 0 && ambiguous.size === 0 && skipped.length === 0,
       ordering: "capture_time_ascending",
       integrity: "not_checked_use_get_evidence",
     };

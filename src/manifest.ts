@@ -5,7 +5,16 @@ export const MAX_MANIFEST_BYTES = 64 * 1024;
 export const evidenceId = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_[0-9a-f-]{36}$/);
+export const descriptionSchema = z.object({
+  text: z.string().trim().min(1).max(2000),
+  language: z
+    .string()
+    .regex(/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/)
+    .max(35),
+  source: z.enum(["ai", "user"]),
+});
 export const contextSchema = z.object({
+  description: descriptionSchema.optional(),
   case_id: z.string().max(120).optional(),
   label: z.string().max(200).optional(),
   note: z.string().max(4000).optional(),
@@ -20,6 +29,13 @@ export const boundsSchema = z.object({
 });
 export const manifestSchema = z
   .object({
+    selection: z
+      .object({
+        method: z.literal("user_confirmed_frozen_preview"),
+        source_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+        confirmed_at: z.string().datetime(),
+      })
+      .optional(),
     crop: z
       .object({
         region: regionSchema,
@@ -76,6 +92,11 @@ export const manifestSchema = z
       ctx.addIssue({
         code: "custom",
         message: "Capture cannot identify both a window and a display.",
+      });
+    if (value.selection && !value.crop)
+      ctx.addIssue({
+        code: "custom",
+        message: "Confirmed selection requires crop provenance.",
       });
     if (value.crop) {
       const { region, source_width, source_height } = value.crop;

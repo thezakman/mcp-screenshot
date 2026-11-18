@@ -56,7 +56,13 @@ describe("MCP protocol", () => {
       const selectorSchema = tools.find(
         (tool) => tool.name === "select_capture_region",
       )!;
-      for (const field of ["label", "note", "tags", "exchange_id"])
+      for (const field of [
+        "label",
+        "note",
+        "tags",
+        "exchange_id",
+        "description",
+      ])
         expect(selectorSchema.inputSchema.properties).toHaveProperty(field);
       expect(client.getInstructions()).toContain(
         "Never claim a batch complete",

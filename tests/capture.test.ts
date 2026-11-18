@@ -203,6 +203,15 @@ it("saves inspected pixels even if the live window subsequently changes", async 
   );
   expect(saved.metadata.sha256).toBe(preview.metadata.sha256);
   expect(saved.metadata.captured_at).toBe(preview.metadata.captured_at);
+  expect(saved.metadata.selection).toMatchObject({
+    method: "user_confirmed_frozen_preview",
+    source_sha256: preview.metadata.sha256,
+  });
+  const reloaded = await service.store.get(saved.metadata.id);
+  expect(reloaded.selection).toEqual(saved.metadata.selection);
+  expect(Number.isNaN(Date.parse(reloaded.selection!.confirmed_at))).toBe(
+    false,
+  );
   expect(backend.capture).toHaveBeenCalledTimes(1);
   await expect(
     service.savePreview(
@@ -249,4 +258,30 @@ it("rejects a misnamed profile before accessing the screenshot backend", async (
   ).rejects.toMatchObject({ code: "INVALID_PROFILE" });
   expect(backend.capture).not.toHaveBeenCalled();
   expect((await service.store.list()).items).toHaveLength(0);
+});
+
+it("preserves the caller's description language and makes its content searchable", async () => {
+  for (const description of [
+    {
+      text: "Texto em português sobre fundo verde-escuro.",
+      language: "pt-BR",
+      source: "ai" as const,
+    },
+    {
+      text: "Monospaced text on a dark background.",
+      language: "en",
+      source: "user" as const,
+    },
+  ]) {
+    const result = await service.capture({ window_id: WINDOW.id, description });
+    const saved = await service.store.get(
+      (result.metadata as { id: string }).id,
+    );
+    expect(saved.context.description).toEqual(description);
+    expect(
+      (await service.store.list({ query: description.text })).items.map(
+        (item) => item.id,
+      ),
+    ).toContain(saved.id);
+  }
 });

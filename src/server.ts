@@ -1,4 +1,5 @@
 import { captureGuide, captureInstructions } from "./workflow.js";
+import { descriptionSchema } from "./manifest.js";
 import { runSelector, selectionSuggestionSchema } from "./selector.js";
 import {
   ProfileStore,
@@ -49,6 +50,11 @@ const evidenceFields = {
   case_id: z.string().trim().min(1).max(120).optional(),
   label: z.string().max(200).optional(),
   note: z.string().max(4000).optional(),
+  description: descriptionSchema
+    .optional()
+    .describe(
+      "Optional visual description of the actual screenshot content in the conversation language, e.g. pt-BR or en. Inspect pixels first; describe visible content, not the capture task or intent. Source is caller-supplied attribution, not independent verification.",
+    ),
   exchange_id: z
     .string()
     .max(200)
@@ -416,6 +422,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
         reject_same_as: evidenceFields.reject_same_as,
         label: evidenceFields.label,
         note: evidenceFields.note,
+        description: evidenceFields.description,
         exchange_id: evidenceFields.exchange_id,
         tags: evidenceFields.tags,
         case_id: z.string().trim().max(120).optional(),

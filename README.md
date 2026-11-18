@@ -224,7 +224,7 @@ The result returns local paths only. Open `html_path` in a browser for an offlin
   SHA256SUMS       # Checksums for the report and copied evidence files
   evidence/<ID>/
     screenshot.png # Exact original bytes
-    evidence.json  # Exact original capture record
+    metadata.json  # Exact original capture record
     reviews/       # Exact review events, when present
 ```
 
@@ -248,7 +248,7 @@ By default, captures are stored in `~/Pictures/mcp-screenshot`:
     <application>/
       <YYYY-MM-DD_HH-mm-ss-SSS>/
         screenshot.png
-        evidence.json
+        metadata.json
         reviews/      # Added only when reviewed
           0001.json
 ```
@@ -335,7 +335,7 @@ Use `select_capture_region` with a `window_id` and optional `name`, for example
 `burp-response`. A frozen preview opens locally: drag a rectangle.
 Use Salvar apenas a seleção to confirm the region/profile, Capturar e salvar (Return) to save the approved crop of that exact preview, or Escape/Cancelar to cancel. Move the selection by dragging inside it; resize using its edges or eight handles. Arrow keys move it precisely (Shift: larger steps), and Limpar região clears it. Selection expires after 300 seconds;
 clients with shorter call timeouts may need a longer timeout. Only one selector
-can run at a time. No evidence is saved during selection. Local selector previews support up to 64 MiB; MCP inline images remain limited to 5 MiB. The capture queue is released before interactive selection.
+session can run at a time per server process, including preview generation, settings and saving. Concurrent attempts return `SELECTION_BUSY` before creating another preview. Client cancellation is checked before applying a returned dialog action. No evidence is saved during selection. Local selector previews support up to 64 MiB; MCP inline images remain limited to 5 MiB. The capture queue is released before interactive selection.
 
 Then call `capture_window` with the current `window_id` and
 `profile: "burp-response"`. Profiles survive restarts. They require the same app
@@ -379,7 +379,7 @@ The profile menu shows profiles compatible with the current app and window size.
 Load one to restore its rectangle. Enter a new name in the adjacent field to
 create another profile. Existing names cannot silently overwrite geometry: use a
 new name for adjustments. **Salvar apenas a seleção** returns the region and saves a named
-profile; **Capturar e salvar** saves PNG/JSON evidence from the exact frozen preview, retaining its original capture time. Settings changes and retries keep that image; **Atualizar prévia** obtains a new image and clears the previous selection and fixed-profile name for a new review. A new profile is created only after evidence saving succeeds. If profile creation then fails, the result returns the saved evidence and a warning, avoiding an accidental duplicate capture. **Limpar região** clears the region without deleting profiles.
+profile; **Capturar e salvar** saves PNG/JSON evidence from the exact frozen preview, retaining its original capture time. Settings changes and retries keep that image; **Atualizar prévia** stays bound to the inspected window identity and obtains a new image and clears the previous selection and fixed-profile name for a new review. A new profile is created only after evidence saving succeeds. If profile creation then fails, the result returns the saved evidence and a warning, avoiding an accidental duplicate capture. **Limpar região** clears the region without deleting profiles.
 
 **Pasta e gerenciamento de perfis…** opens a modal with the current evidence/profile paths, a native
 folder chooser, and profile rename/delete actions. Deletion requires an explicit
@@ -401,7 +401,7 @@ The workspace groups its controls in a sidebar beside the image and shows select
 ## Project organization and sidebar (0.7)
 
 New screenshots use `<destination>/<project>/<app>/<capture-id>/screenshot.png`
-with `evidence.json` beside the PNG. The evidence ID retains the timestamp + UUID format inside `evidence.json`. Capture folder names use `YYYY-MM-DD_HH-mm-ss-SSS` in UTC; simultaneous captures receive `-2`, `-3`, etc., without overwriting existing folders. Set **Projeto** in the sidebar or `case_id` in capture tool arguments.
+with `metadata.json` beside the PNG. The evidence ID retains the timestamp + UUID format inside `metadata.json`. Capture folder names use `YYYY-MM-DD_HH-mm-ss-SSS` in UTC; simultaneous captures receive `-2`, `-3`, etc., without overwriting existing folders. Set **Projeto** in the sidebar or `case_id` in capture tool arguments.
 Without a project, a timestamp + UUID project name is generated and recorded as the evidence case ID. Simple lowercase project IDs such
 as `cliente-a` remain readable; names needing normalization receive a short hash
 suffix to distinguish them. The original case ID stays in the evidence metadata.
@@ -442,3 +442,33 @@ Call `get_capture_guide` first: this read-only tool returns the self-contained w
 Keep the connection alive between preview and selector. Configure an interactive tool timeout of at least 330 seconds per step. After confirmation, inspect the tool result and retrieve the saved image rather than taking another screenshot. A selector opened successfully is not yet a saved image.
 
 Evidence manifests are limited to 64 KiB of UTF-8 JSON at write time as well as read time. Oversized metadata is rejected without publishing evidence. Crop dimensions must agree with the recorded source region.
+
+### Native build cache
+
+`npm run build` always rebuilds the JavaScript bundle. On macOS it reuses the native helper only when the Swift source, compiler/SDK identity, relevant environment, architecture and executable hash match. Missing or damaged cache files trigger compilation. A failed compilation preserves the previous helper. To force a clean native compilation, run `MCP_SCREENSHOT_REBUILD_NATIVE=1 npm run build`.
+
+### Interactive capture provenance
+
+New confirmed captures include `selection.method`, `selection.source_sha256` (the uncropped preview hash) and `selection.confirmed_at` in their JSON metadata. `captured_at` remains the time the preview was captured; `sha256` describes the saved crop. These fields document the confirmation workflow, not independently verified Burp content or a vulnerability. The full preview is not persisted. Older evidence without these optional fields remains readable.
+
+### Discovery diagnostics
+
+`list_evidence` reports `discovery_warnings`, `ambiguous_ids` and `discovery_complete`. Damaged timestamp-folder manifests no longer prevent healthy evidence from being listed. Missing commit markers remain ignored as incomplete saves. Duplicate IDs are skipped in listings and rejected by reading, review and export with `AMBIGUOUS_EVIDENCE`; no copy is selected or deleted automatically. Reconcile duplicates explicitly before retrying. Pagination still uses `next_cursor`; `discovery_complete` describes discovery/validation diagnostics, not whether every page has been returned.
+
+HTML and Markdown exports now show both the original capture time and optional confirmation time, together with the source-preview hash. Older captures without confirmation metadata remain supported.
+
+### Optional visual description
+
+Capture tools and the selector accept `description: {text, language, source}`. This describes the visible image content, not the reason it was captured. The AI client must inspect the intended crop and use the conversation language, unless another language is requested. For example:
+
+```json
+{
+  "description": {
+    "text": "Texto em português, em uma única linha sobre fundo verde-escuro, pedindo um novo teste de screenshot no iTerm2.",
+    "language": "pt-BR",
+    "source": "ai"
+  }
+}
+```
+
+The optional field is stored at `context.description` inside `metadata.json`, alongside the saved PNG's hash. Existing files are not renamed and no existing evidence is rewritten. The selector lets users edit or clear the text and choose its language; edits are attributed to `user`. Refreshing the preview or changing the target clears the description to prevent reuse with different content. Check the text against the final crop. The server does not run a vision model, OCR or translation; it preserves supplied descriptions. Descriptions are searchable and included in summary metadata and HTML/Markdown exports. Source attribution is caller-supplied. No `caption.txt` is created.

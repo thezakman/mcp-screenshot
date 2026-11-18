@@ -1,4 +1,6 @@
+import { descriptionSchema } from "./manifest.js";
 import type { EvidenceContext } from "./evidence.js";
+import { ScreenshotError } from "./errors.js";
 import { CaptureService } from "./capture.js";
 import {
   ProfileStore,
@@ -36,13 +38,15 @@ const actionSchema = z.object({
   ]),
   name: z.string().optional(),
   draft_name: z.string().optional(),
+  description_text: z.string().trim().max(2000).optional(),
+  description_language: z.string().optional(),
   case_id: z.string().max(120).optional(),
   new_name: z.string().optional(),
   destination: z.string().optional(),
   target: z.string().optional(),
   region: regionSchema.optional(),
 });
-export async function runSelector(
+async function runSelectorSession(
   service: CaptureService,
   initial: EvidenceContext & {
     reject_same_as?: string[];
@@ -65,10 +69,12 @@ export async function runSelector(
     reject_same_as,
     label,
     note,
+    description: initialDescription,
     exchange_id,
     tags,
     ...captureTarget
   } = initial;
+  let description = initialDescription;
   let target = { ...captureTarget };
   let pendingSuggestion = suggestion;
   let suggestionReason: string | undefined;
@@ -112,6 +118,8 @@ export async function runSelector(
       pendingSuggestion = undefined;
     }
     const w = result.metadata.window;
+    // Once inspected, keep refreshes bound to this OS window rather than resolving an app again.
+    if (w) target = { window_id: w.id, expected_window_token: windowToken(w) };
     const inventory = await profiles.scan();
     const compatible = inventory.profiles.filter(
       (p) =>
@@ -122,6 +130,8 @@ export async function runSelector(
     );
     const context = {
       request,
+      captured_at: result.metadata.captured_at,
+      description,
       suggestion_reason: suggestionReason,
       destination: service.store.root,
       profiles_directory: profiles.root + "/profiles",
@@ -149,6 +159,7 @@ export async function runSelector(
     const action = actionSchema.parse(
       await selectRegion(Buffer.from(result.image, "base64"), signal, context),
     );
+    signal.throwIfAborted();
     error = undefined;
     if (action.case_id !== undefined) project = action.case_id.trim();
     if (action.region) draft = action.region;
@@ -159,13 +170,34 @@ export async function runSelector(
     )
       draftName = action.name;
     try {
+      if (
+        action.description_text !== undefined &&
+        action.action !== "refresh" &&
+        action.action !== "target"
+      ) {
+        const text = action.description_text;
+        const language =
+          action.description_language ?? description?.language ?? "pt-BR";
+        description = text
+          ? descriptionSchema.parse({
+              text,
+              language,
+              source:
+                text === description?.text && language === description?.language
+                  ? description.source
+                  : "user",
+            })
+          : undefined;
+      }
       if (action.action === "refresh") {
+        description = undefined;
         frozen = undefined;
         draft = undefined;
         draftName = "";
         suggestionReason = undefined;
         // Preserve the selected identity token: refreshing must not adopt a reused OS ID.
       } else if (action.action === "target") {
+        description = undefined;
         const match = /^(window|display):(\d+)$/.exec(action.target ?? "");
         if (!match) throw new Error("Invalid target");
         frozen = undefined;
@@ -232,7 +264,14 @@ export async function runSelector(
           const saved = await service.savePreview(
             frozen,
             region,
-            { case_id: project || undefined, label, note, exchange_id, tags },
+            {
+              case_id: project || undefined,
+              label,
+              note,
+              description,
+              exchange_id,
+              tags,
+            },
             reject_same_as,
             signal,
           );
@@ -247,6 +286,7 @@ export async function runSelector(
           }
           return { region, profile, ...saved };
         }
+        signal.throwIfAborted();
         if (pendingProfile) profile = await profiles.save(pendingProfile);
         return {
           region,
@@ -262,4 +302,24 @@ export async function runSelector(
     }
   }
   throw new Error("Too many selector operations. Reopen the selector.");
+}
+
+// Protect the entire multi-step session, including previews, settings and persistence,
+// not just the interval while the native dialog is open.
+let selectorActive = false;
+export async function runSelector(
+  ...args: Parameters<typeof runSelectorSession>
+) {
+  if (selectorActive)
+    throw new ScreenshotError(
+      "SELECTION_BUSY",
+      "Finish or cancel the current selection before opening another.",
+      true,
+    );
+  selectorActive = true;
+  try {
+    return await runSelectorSession(...args);
+  } finally {
+    selectorActive = false;
+  }
 }

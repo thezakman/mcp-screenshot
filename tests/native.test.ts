@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { selectWindow, sameWindow } from "../src/native.js";
+import { selectWindow, sameWindow, windowToken } from "../src/native.js";
 import { WINDOW } from "./helpers.js";
 describe("window identity", () => {
   it("rejects ambiguous apps and requires a unique window", () => {
@@ -58,4 +58,23 @@ it("does not identify a browser by a page title mentioning Burp Suite", () => {
       { burp: true },
     ),
   ).toThrow("WINDOW_NOT_FOUND");
+});
+
+it("ignores only the leading iTerm progress spinner while preserving window identity", () => {
+  const first = {
+    ...WINDOW,
+    app: "iTerm2",
+    bundleId: "com.googlecode.iterm2",
+    title: "⠋ Capture task | project",
+  };
+  const next = { ...first, title: "⠦ Capture task | project" };
+  expect(sameWindow(first, next)).toBe(true);
+  expect(windowToken(first)).toBe(windowToken(next));
+  expect(
+    sameWindow(first, { ...next, title: "⠦ Different task | project" }),
+  ).toBe(false);
+  expect(sameWindow(first, { ...next, pid: first.pid + 1 })).toBe(false);
+  expect(windowToken({ ...first, bundleId: "other" })).not.toBe(
+    windowToken({ ...next, bundleId: "other" }),
+  );
 });

@@ -96,7 +96,7 @@ export async function exportEvidence(
             "Manifest changed while exporting.",
           );
         await write(`evidence/${id}/screenshot.png`, data);
-        await write(`evidence/${id}/evidence.json`, manifest);
+        await write(`evidence/${id}/metadata.json`, manifest);
         for (const review of item.review_history ?? []) {
           const event = await readBounded(
             join(dirname(path), "reviews", review.file),
@@ -178,6 +178,8 @@ function renderHtml(
       const prefix = `evidence/${item.id}`;
       const details = [
         ["Captured (UTC)", item.captured_at],
+        ["Confirmed (UTC)", item.selection?.confirmed_at ?? ""],
+        ["Source preview SHA-256", item.selection?.source_sha256 ?? ""],
         ["Application", item.window?.app ?? `Display ${item.display}`],
         ["Window title", item.window?.title ?? ""],
         ["Case", item.context.case_id ?? "—"],
@@ -193,7 +195,7 @@ function renderHtml(
         )
         .join(
           "",
-        )}</dl>${item.context.note ? `<h3>Capture note</h3><p class="note">${escapeHtml(item.context.note)}</p>` : ""}${item.context.tags?.length ? `<p class="muted">Tags: ${item.context.tags.map(escapeHtml).join(" · ")}</p>` : ""}${item.review.latest ? `<section class="review"><h3>Review · revision ${item.review.revision}</h3><p class="note">${escapeHtml(item.review.latest.note)}</p><p class="muted">${escapeHtml(item.review.latest.reviewer)} (caller-supplied) · ${escapeHtml(item.review.latest.reviewed_at)}</p></section>` : '<p class="muted">Awaiting review.</p>'}${item.warnings.map((w) => `<p class="warning">${escapeHtml(w)}</p>`).join("")}<footer><a href="${prefix}/screenshot.png">Original PNG</a><a href="${prefix}/evidence.json">Capture metadata</a><span>${escapeHtml(item.id)}</span></footer></div></article>`;
+        )}</dl>${item.context.description ? `<h3>Image description</h3><p class="note" lang="${escapeHtml(item.context.description.language)}">${escapeHtml(item.context.description.text)}</p><p class="muted">${escapeHtml(item.context.description.language)} · ${escapeHtml(item.context.description.source)} (caller-supplied)</p>` : ""}${item.context.note ? `<h3>Capture note</h3><p class="note">${escapeHtml(item.context.note)}</p>` : ""}${item.context.tags?.length ? `<p class="muted">Tags: ${item.context.tags.map(escapeHtml).join(" · ")}</p>` : ""}${item.review.latest ? `<section class="review"><h3>Review · revision ${item.review.revision}</h3><p class="note">${escapeHtml(item.review.latest.note)}</p><p class="muted">${escapeHtml(item.review.latest.reviewer)} (caller-supplied) · ${escapeHtml(item.review.latest.reviewed_at)}</p></section>` : '<p class="muted">Awaiting review.</p>'}${item.warnings.map((w) => `<p class="warning">${escapeHtml(w)}</p>`).join("")}<footer><a href="${prefix}/screenshot.png">Original PNG</a><a href="${prefix}/metadata.json">Capture metadata</a><span>${escapeHtml(item.id)}</span></footer></div></article>`;
     })
     .join("");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${escapeHtml(title)}</title><style>
@@ -210,7 +212,7 @@ function renderMarkdown(
     records
       .map(
         (item, i) =>
-          `## ${i + 1}. ${markdown(item.context.label || item.id)}\n\n- Status: ${item.review.status}\n- Captured: ${item.captured_at}\n- Case: ${markdown(item.context.case_id || "—")}\n- Exchange (caller-supplied): ${markdown(item.context.exchange_id || "—")}\n- SHA-256: \`${item.sha256}\`\n\n![Evidence ${i + 1}](evidence/${item.id}/screenshot.png)\n\n${markdown(item.context.note || "")}\n\n${item.review.latest ? `Review by ${markdown(item.review.latest.reviewer)} (caller-supplied): ${markdown(item.review.latest.note)}\n\n` : ""}[Original metadata](evidence/${item.id}/evidence.json)\n\n`,
+          `## ${i + 1}. ${markdown(item.context.label || item.id)}\n\n- Status: ${item.review.status}\n- Captured: ${item.captured_at}\n${item.selection ? `- Confirmed: ${item.selection.confirmed_at}\n- Source preview SHA-256: \`${item.selection.source_sha256}\`\n` : ""}- Case: ${markdown(item.context.case_id || "—")}\n- Exchange (caller-supplied): ${markdown(item.context.exchange_id || "—")}\n- SHA-256: \`${item.sha256}\`\n\n![Evidence ${i + 1}](evidence/${item.id}/screenshot.png)\n\n${item.context.description ? `Image description (${markdown(item.context.description.language)}): ${markdown(item.context.description.text)}\n\n` : ""}${markdown(item.context.note || "")}\n\n${item.review.latest ? `Review by ${markdown(item.review.latest.reviewer)} (caller-supplied): ${markdown(item.review.latest.note)}\n\n` : ""}[Original metadata](evidence/${item.id}/metadata.json)\n\n`,
       )
       .join("")
   );

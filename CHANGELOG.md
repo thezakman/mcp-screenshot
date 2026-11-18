@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.9.0
+
+- Add optional visual descriptions with explicit language and caller-supplied source attribution in evidence.json. Preserve conversation-language text without server-side OCR or translation.
+- Allow description editing/removal in the selector; clear stale descriptions after preview refresh or target changes.
+- Include descriptions in metadata summaries, evidence search and escaped HTML/Markdown exports; keep older evidence compatible.
+
+## 0.8.4
+
+- Ignore leading iTerm2 braille progress-spinner frames when checking window identity; retain process, geometry and meaningful title checks. Validated during a real iTerm2 capture.
+
+- Isolate malformed discovery manifests, report incomplete discovery and reject ambiguous duplicate evidence IDs instead of silently choosing a copy.
+- Include source-preview hashes and confirmation timestamps in HTML and Markdown exports.
+
+- Record the source preview hash and confirmation time for interactive captures, preserving the original capture timestamp and compatibility with older evidence.
+- Cache native builds by source/compiler/SDK identity and executable digest; stage replacement helpers so failed compilation preserves the previous binary. Support forced rebuilds.
+
+- Protect the entire interactive session from concurrent selectors, including preview generation and persistence. Release the lock on completion, errors and cancellation.
+- Honor client cancellation before applying a returned dialog action or saving a profile.
+- Bind refreshes to the inspected window identity even when the initial target was selected by application name.
+- Clarify that cancelling selection does not undo previously confirmed settings or profile-management actions.
+
 ## 0.8.3
 
 - Bound profile identifiers and reference dimensions, reject mismatched profile filenames on direct use, and return actionable errors for missing profiles, name conflicts and partial renames.

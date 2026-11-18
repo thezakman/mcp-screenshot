@@ -7,8 +7,10 @@ import {
   writeFile,
   symlink,
   readdir,
+  mkdir,
+  cp,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import {
   EvidenceStore,
@@ -212,4 +214,66 @@ it("rejects inconsistent crop provenance and mixed capture identities", async ()
     "both a window and a display",
   );
   expect((await store.list()).items).toEqual([]);
+});
+
+it("rejects confirmation metadata without the corresponding crop provenance", async () => {
+  await expect(
+    store.save(PNG, {
+      ...meta(),
+      selection: {
+        method: "user_confirmed_frozen_preview",
+        source_sha256: pngInfo(PNG).sha256,
+        confirmed_at: new Date().toISOString(),
+      },
+    }),
+  ).rejects.toThrow("requires crop provenance");
+  expect((await store.list()).items).toEqual([]);
+});
+
+it("isolates unreadable discovery manifests and reports incomplete discovery", async () => {
+  const good = await store.save(PNG, meta(), { case_id: "good" });
+  for (const [index, data] of [
+    "null",
+    "{invalid",
+    "x".repeat(65537),
+  ].entries()) {
+    const folder = join(
+      root,
+      "broken",
+      "desktop",
+      `2026-10-08_12-00-0${index}-000`,
+    );
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, "evidence.json"), data);
+  }
+  const listed = await store.list();
+  expect(listed.items.map((item) => item.id)).toEqual([good.id]);
+  expect(listed.discovery_warnings).toHaveLength(3);
+  expect(listed.discovery_complete).toBe(false);
+  expect((await store.get(good.id)).integrity).toBe("verified");
+});
+it("never chooses among duplicate evidence IDs and allows recovery without deleting originals", async () => {
+  const saved = await store.save(PNG, meta(), { case_id: "original" });
+  const copy = join(root, "copied", "desktop", "2026-10-08_12-00-00-000");
+  await cp(dirname(saved.path), copy, { recursive: true });
+  const listed = await store.list();
+  expect(listed.items).toEqual([]);
+  expect(listed.ambiguous_ids).toEqual([saved.id]);
+  expect(listed.skipped).toEqual([saved.id]);
+  await expect(store.get(saved.id)).rejects.toMatchObject({
+    code: "AMBIGUOUS_EVIDENCE",
+  });
+  // Moving the copied folder outside the store is a user decision; removal here is fixture cleanup.
+  await rm(copy, { recursive: true });
+  expect((await store.get(saved.id)).integrity).toBe("verified");
+});
+
+it("writes metadata.json and discovers legacy evidence.json on readback", async () => {
+  const saved = await store.save(PNG, meta());
+  expect(saved.manifest_path).toBe(join(dirname(saved.path), "metadata.json"));
+  const legacy = join(dirname(saved.path), "evidence.json");
+  const { rename } = await import("node:fs/promises");
+  await rename(saved.manifest_path, legacy);
+  expect((await store.get(saved.id)).manifest_path).toBe(legacy);
+  expect((await store.list()).items.map((item) => item.id)).toContain(saved.id);
 });
