@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="MCP Screenshot" width="200">
+  <img src="assets/logo.png" alt="MCP Screenshot" width="256" height="256">
 </p>
 
 # MCP Screenshot
