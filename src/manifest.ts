@@ -1,6 +1,7 @@
-import { regionSchema } from "./regions.js";
+import { regionSchema, pixelRegion } from "./regions.js";
 import { z } from "zod";
 import { ScreenshotError } from "./errors.js";
+export const MAX_MANIFEST_BYTES = 64 * 1024;
 export const evidenceId = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_[0-9a-f-]{36}$/);
@@ -68,6 +69,27 @@ export const manifestSchema = z
         code: "custom",
         message: "Capture identity is inconsistent.",
       });
+    if (
+      (value.mode === "window" && value.display !== undefined) ||
+      (value.mode === "display" && value.window !== undefined)
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Capture cannot identify both a window and a display.",
+      });
+    if (value.crop) {
+      const { region, source_width, source_height } = value.crop;
+      const expected = pixelRegion(region, source_width, source_height);
+      if (
+        source_width * source_height > 150_000_000 ||
+        expected.width !== value.width ||
+        expected.height !== value.height
+      )
+        ctx.addIssue({
+          code: "custom",
+          message: "Crop dimensions do not match the source region.",
+        });
+    }
     if (value.width * value.height > 150_000_000)
       ctx.addIssue({ code: "custom", message: "Image is too large." });
     if (

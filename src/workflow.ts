@@ -12,15 +12,19 @@ export const captureGuide = {
     "Call capture_window with window_id, expected_window_token, persist=false, include_image=true. Omit region and profile for this uncropped preview. Inspect the actual returned image, including the requested tab/item/content, not just accessibility text or successful selection metadata.",
     "Compute a NEW crop from the useful visible content for each request/payload/response/item. Given preview width W, height H and pixel bounds left,top,width,height, use x=left/W, y=top/H, width=width/W, height=height/H. Origin is top-left. Use IMAGE pixels, not macOS logical points or the resized chat rendering. All values must fit within 0..1. Include the entire requested visible content with reasonable margins. Hidden/scrolling content is not captured.",
     "Keep the SAME MCP server connection/process open. Call select_capture_region with the same window_id/token, request and suggestion={region,source_sha256,reason}; copy source_sha256 from the inspected uncropped preview. The server caches up to four previews for five minutes and validates window identity/bounds. Do not start a new stdio process between these calls. Omit name for dynamic crops. If uncertain, omit suggestion and open manual selection.",
-    "Tell the user the selector is awaiting their adjustment/confirmation. Allow at least 330000 ms tool timeout for each 300-second interactive step; settings can open additional steps. Do not automatically press Enter, create a fixed profile, or bypass requested confirmation. The preview is frozen. Capturar e salvar takes a fresh screenshot with the approved geometry; Salvar apenas a seleção returns geometry without saving a screenshot. Wait for the tool result. Opening the window is not proof of a saved capture.",
+    "Tell the user the selector is awaiting their adjustment/confirmation. Allow at least 330000 ms tool timeout for each 300-second interactive step; settings can open additional steps. Do not automatically press Enter, create a fixed profile, or bypass requested confirmation. The preview stays frozen during settings changes and retries. To inspect updated content, use Atualizar prévia, which clears the previous geometry and fixed-profile name for a new review. Capturar e salvar saves the approved crop from that exact frozen image, preserving its original capture time; Salvar apenas a seleção returns geometry without saving a screenshot. Wait for the tool result. Opening the window is not proof of a saved capture.",
     "If the result has metadata.persisted=true, use metadata.id/path; do not capture again. Retrieve get_evidence(id,include_image=true) to inspect the saved image and compare to the requested content. If only region was returned, report selection confirmed, not screenshot saved; capture it only when the user wants saving. Re-list windows for a fresh token before a later capture. Cancel/timeout is not success.",
     "For batches, keep one case_id for the project; select and visually verify every item independently. Recompute dynamic crops per item. Pass prior saved IDs in reject_same_as (up to 20) to capture_window or select_capture_region. Inspect all output images; different hashes do not prove different/correct content. If duplicate detection fails or content is wrong, stop, reselect and verify. Mark incorrect saved artifacts via review_evidence as rejected/needs_recapture, preserve originals, and report incomplete items honestly.",
   ],
+  evidence_context:
+    "select_capture_region accepts optional label, note, tags and exchange_id, retained when saving the confirmed image. exchange_id is caller-supplied and never proves that the visible content belongs to that exchange. These metadata fields do not create a caption.txt file.",
   fixed_profiles:
     "Profiles store fixed coordinates only, not semantic rules. Leave name and profile unset for content-fitted requests. Create/reuse profiles only on explicit user request for a fixed region. Matching app/window size does not establish matching internal layout. Never automatically save a fitted Repeater crop as burp-repeater.",
   storage:
     "Captures default to the configured base/project/app/UTC-timestamp directory with screenshot.png and evidence.json. Empty project generates timestamp+UUID; use one explicit case_id across a batch. Return actual paths from tool results. Caller-supplied exchange IDs and review status are not independently verified application identity or vulnerability validation.",
   recovery: {
+    invalid_profile:
+      "PROFILE_NOT_FOUND: list profiles and choose an existing name or explicitly create one. INVALID_PROFILE: repair or explicitly delete/recreate the named file; never fall back to full-window capture. PROFILE_EXISTS: choose another name; geometry is immutable. PROFILE_RENAME_PARTIAL: the new name was created but removal of the old name failed; list and verify both before explicitly deleting the old name. Do not blindly retry rename or delete valid evidence.",
     stale_window:
       "Refresh list_windows and inspect a new preview before proposing again.",
     stale_preview:
@@ -28,7 +32,7 @@ export const captureGuide = {
     duplicate_capture:
       "DUPLICATE_CAPTURE means no new file was saved. Select/verify the next item and retry; do not remove the guard just to make the batch succeed.",
     image_too_large:
-      "If an inline preview exceeds the image limit, explain the limitation and use manual select_capture_region. Do not propose an unseen crop.",
+      "If an inline preview exceeds the image limit, explain the limitation and use manual select_capture_region, whose local preview supports up to 64 MiB without persisting evidence. Do not propose an unseen crop.",
     missing_tools:
       "Reconnect the MCP client after upgrading to refresh tools and instructions. Do not assume a running connection loaded a rebuilt server.",
   },
@@ -62,6 +66,7 @@ export const captureInstructions = [
   "Call get_capture_guide for the complete capture workflow and examples; no screenshots are taken by that tool.",
   ...captureGuide.workflow,
   captureGuide.fixed_profiles,
+  captureGuide.evidence_context,
   captureGuide.storage,
   "Never claim a batch complete from tool success or accessibility text alone. Nothing is captured on connection.",
 ].join("\n\n");

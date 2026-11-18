@@ -332,11 +332,10 @@ See [CHANGELOG.md](CHANGELOG.md) for versioned changes and [LICENSE](LICENSE) fo
 ## Regions and reusable profiles (0.5)
 
 Use `select_capture_region` with a `window_id` and optional `name`, for example
-`burp-response`. A frozen preview opens locally: drag a rectangle, then press
-Use Salvar apenas a seleção to confirm the region/profile, Capturar e salvar (Return) to save a fresh screenshot, or Escape/Cancelar to cancel. Move the selection by dragging inside it; resize using its edges or eight handles. Arrow keys move it precisely (Shift: larger steps), and Limpar região clears it. Selection expires after 300 seconds;
+`burp-response`. A frozen preview opens locally: drag a rectangle.
+Use Salvar apenas a seleção to confirm the region/profile, Capturar e salvar (Return) to save the approved crop of that exact preview, or Escape/Cancelar to cancel. Move the selection by dragging inside it; resize using its edges or eight handles. Arrow keys move it precisely (Shift: larger steps), and Limpar região clears it. Selection expires after 300 seconds;
 clients with shorter call timeouts may need a longer timeout. Only one selector
-can run at a time. No evidence is saved during selection. Previews are currently
-limited to 5 MiB. The capture queue is released before interactive selection.
+can run at a time. No evidence is saved during selection. Local selector previews support up to 64 MiB; MCP inline images remain limited to 5 MiB. The capture queue is released before interactive selection.
 
 Then call `capture_window` with the current `window_id` and
 `profile: "burp-response"`. Profiles survive restarts. They require the same app
@@ -348,9 +347,9 @@ layout changes. No full-window fallback occurs when a profile fails.
 For automation, `save_capture_profile` accepts `name`, `version: 1`, `app`
 (bundle ID, or exact app name when unavailable), reference `width`/`height` in
 window points, and `region: {x, y, width, height}` in normalized coordinates
-between zero and one, with top-left origin. `list_capture_profiles` lists profiles;
+between zero and one, with top-left origin. `list_capture_profiles` lists valid profiles and reports warnings for invalid files without blocking selection;
 `delete_capture_profile` removes one. Names are immutable: use a new name or
-explicitly delete and recreate. Each capture records the region actually used.
+explicitly delete and recreate. Each capture records the region actually used. Profile names must match their JSON filenames; malformed files cannot be used directly even if their filename is known. Application identifiers are bounded and reference dimensions must be finite. `PROFILE_EXISTS` never overwrites existing geometry. `PROFILE_RENAME_PARTIAL` means the new name was saved but removal of the old name failed: list and verify both, then explicitly delete the old name if desired. Do not blindly retry the rename.
 
 All capture tools accept a direct `region` instead of a profile. A display preview
 is available through `select_capture_region` with `display`; display selections
@@ -361,11 +360,13 @@ multiple monitors in one gesture.
 `capture_frontmost_window` resolves the foreground app before capturing. If it
 has multiple visible windows, select one explicitly rather than guessing.
 
-New evidence lives at `<root>/<project>/<app>/<evidence-id>/screenshot.png` with its JSON
+New evidence lives at `<root>/<project>/<app>/<UTC-timestamp>/screenshot.png` with its JSON
 sidecar. Common folder names include `burp-suite`, `chrome`, `iterm2`, and
 `desktop`; other names are sanitized. Legacy root-level evidence remains readable,
-reviewable and exportable without migration. Profiles live in `<root>/profiles`.
+reviewable and exportable without migration. Profiles stay in the configured profile directory when the evidence destination changes.
 The full source screenshot is temporary; only the requested crop is persisted.
+
+The interactive selector also accepts optional `label`, `note`, `tags` and `exchange_id` and preserves them in saved evidence. Exchange IDs remain caller-supplied associations, not independently verified links. These fields are JSON metadata, not a text-caption sidecar.
 
 ## Capture workspace (0.6)
 
@@ -378,9 +379,7 @@ The profile menu shows profiles compatible with the current app and window size.
 Load one to restore its rectangle. Enter a new name in the adjacent field to
 create another profile. Existing names cannot silently overwrite geometry: use a
 new name for adjustments. **Salvar apenas a seleção** returns the region and saves a named
-profile; **Capturar e salvar** additionally captures the current target and saves
-PNG/JSON evidence. The latter takes a fresh capture, so content may have changed
-since the preview. **Limpar região** clears the region without deleting profiles.
+profile; **Capturar e salvar** saves PNG/JSON evidence from the exact frozen preview, retaining its original capture time. Settings changes and retries keep that image; **Atualizar prévia** obtains a new image and clears the previous selection and fixed-profile name for a new review. A new profile is created only after evidence saving succeeds. If profile creation then fails, the result returns the saved evidence and a warning, avoiding an accidental duplicate capture. **Limpar região** clears the region without deleting profiles.
 
 **Pasta e gerenciamento de perfis…** opens a modal with the current evidence/profile paths, a native
 folder chooser, and profile rename/delete actions. Deletion requires an explicit
@@ -430,7 +429,7 @@ For distinct-item batches, select and visually verify **each** item. Pass previo
 
 Reconnect the MCP client after upgrading to refresh tool schemas and server instructions.
 
-Suggested selections reuse the exact inspected preview in the same connected MCP session (maximum four uncropped ephemeral images, five-minute expiry). Keep that session open between preview and selector calls. Window identity and bounds must still match. The preview stays frozen; Capturar e salvar takes a fresh screenshot after confirmation.
+Suggested selections reuse the exact inspected preview in the same connected MCP session (maximum four uncropped ephemeral images, five-minute expiry). Keep that session open between preview and selector calls. Window identity and bounds must still match. The preview stays frozen; Capturar e salvar saves that exact image with the approved crop and its original capture timestamp.
 
 ### Dynamic crops versus fixed profiles
 
@@ -441,3 +440,5 @@ A content-fitted suggestion is for **one capture**. For every new payload, respo
 Call `get_capture_guide` first: this read-only tool returns the self-contained workflow, coordinate formula, tool-call examples, client/server responsibilities and recovery steps. The same core instructions are advertised during MCP initialization. No conversation history is required. A vision-capable client is needed for automatic suggestions; otherwise use manual selection. Navigation needs a separate application connector or UI tool.
 
 Keep the connection alive between preview and selector. Configure an interactive tool timeout of at least 330 seconds per step. After confirmation, inspect the tool result and retrieve the saved image rather than taking another screenshot. A selector opened successfully is not yet a saved image.
+
+Evidence manifests are limited to 64 KiB of UTF-8 JSON at write time as well as read time. Oversized metadata is rejected without publishing evidence. Crop dimensions must agree with the recorded source region.

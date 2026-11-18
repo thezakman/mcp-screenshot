@@ -23,7 +23,7 @@ describe("MCP protocol", () => {
       capture: vi.fn(async () => PNG),
     };
     const server = createServer(
-      new CaptureService(new EvidenceStore(root), backend, ""),
+      new CaptureService(new EvidenceStore(root), backend, "", root),
       "0.1.0",
     );
     const client = new Client({ name: "local-test", version: "1.0.0" });
@@ -53,6 +53,11 @@ describe("MCP protocol", () => {
           "take_screenshot",
         ].sort(),
       );
+      const selectorSchema = tools.find(
+        (tool) => tool.name === "select_capture_region",
+      )!;
+      for (const field of ["label", "note", "tags", "exchange_id"])
+        expect(selectorSchema.inputSchema.properties).toHaveProperty(field);
       expect(client.getInstructions()).toContain(
         "Never claim a batch complete",
       );

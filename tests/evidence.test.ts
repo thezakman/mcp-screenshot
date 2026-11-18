@@ -184,3 +184,32 @@ it("reserves compact timestamp folders across concurrent stores without overwrit
     (await readdir(folder)).some((name) => name.startsWith(".pending-")),
   ).toBe(false);
 });
+
+it("rejects oversized UTF-8 manifests instead of saving unreadable evidence", async () => {
+  // Each warning satisfies the character limit; the combined UTF-8 file exceeds 64 KiB.
+  const large = {
+    ...meta(),
+    warnings: Array.from({ length: 10 }, () => "界".repeat(4000)),
+  };
+  await expect(store.save(PNG, large)).rejects.toThrow(
+    "metadata exceeds 64 KiB",
+  );
+  expect((await store.list()).items).toEqual([]);
+});
+it("rejects inconsistent crop provenance and mixed capture identities", async () => {
+  await expect(
+    store.save(PNG, {
+      ...meta(),
+      crop: {
+        region: { x: 0, y: 0, width: 1, height: 1 },
+        source_width: 100,
+        source_height: 100,
+      },
+    }),
+  ).rejects.toThrow("Crop dimensions");
+  const { WINDOW } = await import("./helpers.js");
+  await expect(store.save(PNG, { ...meta(), window: WINDOW })).rejects.toThrow(
+    "both a window and a display",
+  );
+  expect((await store.list()).items).toEqual([]);
+});

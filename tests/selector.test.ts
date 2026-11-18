@@ -239,16 +239,11 @@ it("does not reuse or create a geometric profile for a dynamic content suggestio
 });
 
 it("applies the batch duplicate guard only when saving, and surfaces failures for correction", async () => {
-  const originalCapture = service.capture.bind(service);
   const calls = vi
-    .spyOn(service, "capture")
-    .mockImplementation(async (options, signal) => {
-      if (options.persist === true)
-        throw new Error(
-          "DUPLICATE_CAPTURE: Nothing saved. Select the next item.",
-        );
-      return originalCapture(options, signal);
-    });
+    .spyOn(service, "savePreview")
+    .mockRejectedValue(
+      new Error("DUPLICATE_CAPTURE: Nothing saved. Select the next item."),
+    );
   const region = { x: 0, y: 0, width: 1, height: 1 };
   vi.mocked(selectRegion)
     .mockResolvedValueOnce({ action: "capture", region })
@@ -258,10 +253,123 @@ it("applies the batch duplicate guard only when saving, and surfaces failures fo
     { window_id: WINDOW.id, reject_same_as: ["previous-id"] },
     new AbortController().signal,
   );
-  expect(calls.mock.calls[0][0].reject_same_as).toBeUndefined();
-  expect(calls.mock.calls[1][0].reject_same_as).toEqual(["previous-id"]);
+  expect(calls.mock.calls[0][3]).toEqual(["previous-id"]);
   expect(vi.mocked(selectRegion).mock.calls[1][2]?.error).toContain(
     "DUPLICATE_CAPTURE",
   );
   expect((await service.store.list()).items).toHaveLength(0);
+});
+
+it("saves the frozen preview without recapturing and keeps its original timestamp", async () => {
+  const capture = vi.spyOn(service, "localPreview");
+  const save = vi.spyOn(service, "savePreview");
+  vi.mocked(selectRegion).mockResolvedValue({
+    action: "capture",
+    region: { x: 0, y: 0, width: 1, height: 1 },
+  });
+  const result = await runSelector(
+    service,
+    { window_id: WINDOW.id },
+    new AbortController().signal,
+  );
+  expect(capture).toHaveBeenCalledTimes(1);
+  expect(save.mock.calls[0][0].image).toBe(PNG.toString("base64"));
+  expect("metadata" in result && result.metadata.captured_at).toBe(
+    save.mock.calls[0][0].metadata.captured_at,
+  );
+  expect((await service.store.list()).items).toHaveLength(1);
+});
+it("does not leave a new profile behind when evidence save fails", async () => {
+  vi.spyOn(service, "savePreview").mockRejectedValue(new Error("Disk full"));
+  const preview = vi.spyOn(service, "localPreview");
+  const region = { x: 0, y: 0, width: 1, height: 1 };
+  vi.mocked(selectRegion)
+    .mockResolvedValueOnce({ action: "capture", name: "new-profile", region })
+    .mockResolvedValueOnce({ action: "confirm", region });
+  await runSelector(
+    service,
+    { window_id: WINDOW.id },
+    new AbortController().signal,
+  );
+  expect(await new ProfileStore(state.root).list()).toEqual([]);
+  expect(preview).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(selectRegion).mock.calls[1][2]?.error).toContain(
+    "Disk full",
+  );
+});
+it("returns saved evidence and a warning if the optional profile cannot be created", async () => {
+  const failure = vi
+    .spyOn(ProfileStore.prototype, "save")
+    .mockRejectedValue(new Error("Read-only profiles"));
+  try {
+    vi.mocked(selectRegion).mockResolvedValue({
+      action: "capture",
+      name: "new-profile",
+      region: { x: 0, y: 0, width: 1, height: 1 },
+    });
+    const result = await runSelector(
+      service,
+      { window_id: WINDOW.id },
+      new AbortController().signal,
+    );
+    expect(
+      "metadata" in result && result.metadata.warnings.join(" "),
+    ).toContain("profile was not created");
+    expect((await service.store.list()).items).toHaveLength(1);
+    expect(selectRegion).toHaveBeenCalledTimes(1);
+  } finally {
+    failure.mockRestore();
+  }
+});
+
+it("refreshes explicitly, clearing stale geometry while retaining the project", async () => {
+  const capture = vi.spyOn(service, "localPreview");
+  const region = { x: 0, y: 0, width: 1, height: 1 };
+  vi.mocked(selectRegion)
+    .mockResolvedValueOnce({
+      action: "refresh",
+      region,
+      draft_name: "old-layout",
+      case_id: "project-a",
+    })
+    .mockResolvedValueOnce({ action: "confirm", region });
+  await runSelector(
+    service,
+    { window_id: WINDOW.id },
+    new AbortController().signal,
+  );
+  expect(capture).toHaveBeenCalledTimes(2);
+  const context = vi.mocked(selectRegion).mock.calls[1][2];
+  expect(context?.initial_region).toBeUndefined();
+  expect(context?.name).toBe("");
+  expect(context?.case_id).toBe("project-a");
+  expect((await service.store.list()).items).toHaveLength(0);
+});
+it("persists caller context through interactive confirmation", async () => {
+  vi.mocked(selectRegion).mockResolvedValue({
+    action: "capture",
+    region: { x: 0, y: 0, width: 1, height: 1 },
+  });
+  const result = await runSelector(
+    service,
+    {
+      window_id: WINDOW.id,
+      case_id: "case-a",
+      label: "Response",
+      note: "Visible response only",
+      exchange_id: "exchange-42",
+      tags: ["repeater"],
+    },
+    new AbortController().signal,
+  );
+  if (!("metadata" in result)) throw new Error("Missing saved evidence");
+  const saved = await service.store.get(result.metadata.id);
+  expect(saved.context).toEqual({
+    case_id: "case-a",
+    label: "Response",
+    note: "Visible response only",
+    exchange_id: "exchange-42",
+    tags: ["repeater"],
+  });
+  expect(saved.association).toBe("caller_supplied_unverified");
 });

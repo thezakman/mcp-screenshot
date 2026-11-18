@@ -27,7 +27,11 @@ import {
 } from "node:path";
 import { homedir } from "node:os";
 import { assertDirectory, readBounded, openRegular } from "./storage.js";
-import { parseManifest, manifestSchema } from "./manifest.js";
+import {
+  parseManifest,
+  manifestSchema,
+  MAX_MANIFEST_BYTES,
+} from "./manifest.js";
 import { ScreenshotError } from "./errors.js";
 import type { WindowInfo } from "./native.js";
 const ID_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_[0-9a-f-]{36}$/;
@@ -152,17 +156,22 @@ export class EvidenceStore {
       image: "screenshot.png",
     };
     try {
-      manifestSchema.parse(evidence);
+      const validated = manifestSchema.parse(evidence);
+      const manifest = JSON.stringify(validated, null, 2) + "\n";
+      if (Buffer.byteLength(manifest, "utf8") > MAX_MANIFEST_BYTES)
+        throw new ScreenshotError(
+          "MANIFEST_TOO_LARGE",
+          "Evidence metadata exceeds 64 KiB. Shorten notes, titles or warnings before retrying.",
+        );
 
       await writeFile(join(stagedApp, evidence.image), data, {
         flag: "wx",
         mode: 0o600,
       });
-      await writeFile(
-        join(stagedApp, "evidence.json"),
-        JSON.stringify(evidence, null, 2) + "\n",
-        { flag: "wx", mode: 0o600 },
-      );
+      await writeFile(join(stagedApp, "evidence.json"), manifest, {
+        flag: "wx",
+        mode: 0o600,
+      });
       // Exclusive mkdir reserves a timestamp even across separate server processes.
       const base = captureFolder(meta.captured_at);
       for (let suffix = 1; suffix <= 10000; suffix++) {
@@ -205,7 +214,10 @@ export class EvidenceStore {
           try {
             const raw = JSON.parse(
               (
-                await readBounded(join(path, "evidence.json"), 64 * 1024)
+                await readBounded(
+                  join(path, "evidence.json"),
+                  MAX_MANIFEST_BYTES,
+                )
               ).toString(),
             );
             if (typeof raw.id === "string" && ID_PATTERN.test(raw.id))
@@ -271,7 +283,7 @@ export class EvidenceStore {
       directory = (await this.locations(root)).get(id) ?? join(root, id);
     await assertDirectory(directory);
     const manifestPath = join(directory, "evidence.json");
-    const manifestBytes = await readBounded(manifestPath, 64 * 1024);
+    const manifestBytes = await readBounded(manifestPath, MAX_MANIFEST_BYTES);
     const evidence = parseManifest(manifestBytes, id);
     const path = join(directory, "screenshot.png");
     const { file, stat } = await openRegular(path, 64 * 1024 * 1024);
@@ -426,7 +438,7 @@ export class EvidenceStore {
         const dir = locations.get(id)!;
         await assertDirectory(dir);
         const item = parseManifest(
-          await readBounded(join(dir, "evidence.json"), 64 * 1024),
+          await readBounded(join(dir, "evidence.json"), MAX_MANIFEST_BYTES),
           id,
         );
         if (options.case_id && item.context?.case_id !== options.case_id)

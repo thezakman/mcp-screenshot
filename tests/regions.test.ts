@@ -1,8 +1,8 @@
-import { it, expect } from "vitest";
-import { mkdtemp, rm, rename, mkdir } from "node:fs/promises";
+import { it, expect, vi } from "vitest";
+import { mkdtemp, rm, rename, mkdir, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { pixelRegion, ProfileStore } from "../src/regions.js";
+import { pixelRegion, ProfileStore, profileSchema } from "../src/regions.js";
 import {
   EvidenceStore,
   pngInfo,
@@ -136,6 +136,93 @@ it("uses project/app/capture folders and keeps project names path-safe", async (
     );
     expect(projectFolder(" ")).not.toBe(projectFolder(""));
     expect(projectFolder("sem-projeto")).not.toBe("sem-projeto");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("isolates malformed and misnamed profiles while reporting actionable warnings", async () => {
+  const root = await mkdtemp(join(tmpdir(), "profiles-corrupt-"));
+  try {
+    const store = new ProfileStore(root);
+    const profile = {
+      name: "healthy",
+      version: 1 as const,
+      app: "app",
+      width: 800,
+      height: 600,
+      region: { x: 0, y: 0, width: 1, height: 1 },
+    };
+    await store.save(profile);
+    await writeFile(join(root, "profiles", "broken.json"), "{invalid");
+    await writeFile(
+      join(root, "profiles", "misnamed.json"),
+      JSON.stringify(profile),
+    );
+    const result = await store.scan();
+    expect(result.profiles).toEqual([profile]);
+    expect(result.warnings).toHaveLength(2);
+    expect(result.warnings.join(" ")).toContain("broken.json");
+    expect(await store.list()).toEqual([profile]);
+    await expect(store.get("misnamed")).rejects.toMatchObject({
+      code: "INVALID_PROFILE",
+    });
+    await expect(store.get("broken")).rejects.toMatchObject({
+      code: "INVALID_PROFILE",
+    });
+    await expect(store.get("missing")).rejects.toMatchObject({
+      code: "PROFILE_NOT_FOUND",
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("rejects unbounded application identifiers and non-finite reference dimensions", () => {
+  const profile = {
+    name: "fixed",
+    version: 1,
+    app: "app",
+    width: 800,
+    height: 600,
+    region: { x: 0, y: 0, width: 1, height: 1 },
+  };
+  expect(
+    profileSchema.safeParse({ ...profile, app: "界".repeat(65536) }).success,
+  ).toBe(false);
+  expect(profileSchema.safeParse({ ...profile, width: Infinity }).success).toBe(
+    false,
+  );
+  expect(
+    profileSchema.safeParse({ ...profile, height: Infinity }).success,
+  ).toBe(false);
+});
+it("reports immutable-name conflicts and partial renames without losing either profile", async () => {
+  const root = await mkdtemp(join(tmpdir(), "profiles-rename-"));
+  const store = new ProfileStore(root);
+  const profile = {
+    name: "original",
+    version: 1 as const,
+    app: "app",
+    width: 800,
+    height: 600,
+    region: { x: 0, y: 0, width: 1, height: 1 },
+  };
+  try {
+    await store.save(profile);
+    await expect(store.save(profile)).rejects.toMatchObject({
+      code: "PROFILE_EXISTS",
+    });
+    const deletion = vi
+      .spyOn(store, "delete")
+      .mockRejectedValueOnce(new Error("Read only"));
+    await expect(store.rename("original", "renamed")).rejects.toMatchObject({
+      code: "PROFILE_RENAME_PARTIAL",
+    });
+    deletion.mockRestore();
+    expect((await store.get("original")).region).toEqual(profile.region);
+    expect((await store.get("renamed")).region).toEqual(profile.region);
+    expect(await store.list()).toHaveLength(2);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

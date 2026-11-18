@@ -84,6 +84,9 @@ do {
         }
         targets.target=region; targets.action=#selector(RegionView.changeTarget(_:))
         targets.toolTip="Janela ou monitor de origem"; section("ORIGEM",targets)
+        let reload=button("Atualizar prévia",#selector(RegionView.reloadPreview))
+        reload.toolTip="Obtém uma nova imagem e limpa a seleção anterior para você revisar o conteúdo atual."
+        add(reload)
         let names=NSPopUpButton()
         names.addItem(withTitle:"Seleção livre")
         for profile in config["profiles"] as? [[String:Any]] ?? [] { names.addItem(withTitle:profile["name"] as? String ?? "") }
@@ -315,6 +318,7 @@ final class RegionView: NSView, NSWindowDelegate {
         selection=NSRect(x:x*bounds.width,y:(1-y-h)*bounds.height,width:w*bounds.width,height:h*bounds.height)
         nameField?.stringValue=profiles[index]["name"] as? String ?? ""; refresh()
     }
+    @objc func reloadPreview() { finish(["action":"refresh"]) }
     @objc func changeTarget(_ sender:NSPopUpButton) {
         guard let target=sender.selectedItem?.representedObject as? String else { return }
         finish(["action":"target","target":target])

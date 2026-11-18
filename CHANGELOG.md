@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.3
+
+- Bound profile identifiers and reference dimensions, reject mismatched profile filenames on direct use, and return actionable errors for missing profiles, name conflicts and partial renames.
+
+- Add explicit preview refresh, clearing stale crop geometry while retaining project context.
+- Preserve optional labels, notes, tags and caller-supplied exchange IDs through interactive capture.
+- Reject oversized UTF-8 manifests before publication and validate crop provenance and exclusive capture identity.
+
+- Save the approved frozen preview instead of taking another screenshot; retain its capture timestamp and keep it stable during settings changes and retries.
+- Separate local selector previews (64 MiB) from MCP inline transport limits (5 MiB).
+- Resolve profiles independently of evidence destination and skip invalid profile files with explicit warnings.
+- Create optional profiles only after evidence persistence succeeds; report partial success if profile creation fails.
+- Preserve original PNG bytes for full-image crops and avoid unnecessary native processing.
+
 ## 0.8.2
 
 - Expose a self-contained read-only capture guide and structured initialization instructions for fresh AI sessions, including coordinate conversion, confirmation lifecycle and recovery.

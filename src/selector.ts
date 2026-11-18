@@ -1,3 +1,4 @@
+import type { EvidenceContext } from "./evidence.js";
 import { CaptureService } from "./capture.js";
 import {
   ProfileStore,
@@ -5,7 +6,7 @@ import {
   regionSchema,
   selectRegion,
 } from "./regions.js";
-import { profilesRoot, saveDestination } from "./settings.js";
+import { saveDestination } from "./settings.js";
 import { windowToken } from "./native.js";
 import { z } from "zod";
 export const selectionSuggestionSchema = z.object({
@@ -26,6 +27,7 @@ export const selectionSuggestionSchema = z.object({
 const actionSchema = z.object({
   action: z.enum([
     "target",
+    "refresh",
     "destination",
     "rename",
     "delete",
@@ -42,7 +44,7 @@ const actionSchema = z.object({
 });
 export async function runSelector(
   service: CaptureService,
-  initial: {
+  initial: EvidenceContext & {
     reject_same_as?: string[];
     request?: string;
     suggestion?: z.infer<typeof selectionSuggestionSchema>;
@@ -56,8 +58,17 @@ export async function runSelector(
   },
   signal: AbortSignal,
 ) {
-  const profiles = new ProfileStore(profilesRoot());
-  const { request, suggestion, reject_same_as, ...captureTarget } = initial;
+  const profiles = new ProfileStore(service.profileDirectory);
+  const {
+    request,
+    suggestion,
+    reject_same_as,
+    label,
+    note,
+    exchange_id,
+    tags,
+    ...captureTarget
+  } = initial;
   let target = { ...captureTarget };
   let pendingSuggestion = suggestion;
   let suggestionReason: string | undefined;
@@ -65,6 +76,9 @@ export async function runSelector(
   let draft: unknown;
   let draftName = initial.name ?? "";
   let project = initial.case_id ?? "";
+  let frozen:
+    | { metadata: import("./evidence.js").CaptureMetadata; image: string }
+    | undefined;
   for (let iteration = 0; iteration < 100; iteration++) {
     signal.throwIfAborted();
     const windows = await service.windows();
@@ -78,12 +92,14 @@ export async function runSelector(
       ? await service.suggestedPreview(pendingSuggestion.source_sha256, target)
       : undefined;
     const result =
+      frozen ??
       cached ??
-      (await service.capture(
+      (await service.localPreview(
         { ...target, persist: false, include_image: true },
         signal,
       ));
     if (!result.image) throw new Error("Preview unavailable");
+    frozen = { metadata: result.metadata, image: result.image };
     if (pendingSuggestion) {
       if (pendingSuggestion.source_sha256 === result.metadata.sha256) {
         draft = pendingSuggestion.region;
@@ -96,7 +112,8 @@ export async function runSelector(
       pendingSuggestion = undefined;
     }
     const w = result.metadata.window;
-    const compatible = (await profiles.list()).filter(
+    const inventory = await profiles.scan();
+    const compatible = inventory.profiles.filter(
       (p) =>
         w &&
         p.app === (w.bundleId || w.app) &&
@@ -110,12 +127,13 @@ export async function runSelector(
       profiles_directory: profiles.root + "/profiles",
       destination_locked: !!process.env.MCP_SCREENSHOT_DIR,
       profiles: compatible,
-      all_profiles: await profiles.list(),
+      all_profiles: inventory.profiles,
       name: draftName,
       case_id: project,
       initial_region:
         draft ?? compatible.find((p) => p.name === draftName)?.region,
-      error,
+      error:
+        [error, ...inventory.warnings].filter(Boolean).join("\n") || undefined,
       targets: [
         ...windows.map((w) => ({
           id: "window:" + w.id,
@@ -141,9 +159,16 @@ export async function runSelector(
     )
       draftName = action.name;
     try {
-      if (action.action === "target") {
+      if (action.action === "refresh") {
+        frozen = undefined;
+        draft = undefined;
+        draftName = "";
+        suggestionReason = undefined;
+        // Preserve the selected identity token: refreshing must not adopt a reused OS ID.
+      } else if (action.action === "target") {
         const match = /^(window|display):(\d+)$/.exec(action.target ?? "");
         if (!match) throw new Error("Invalid target");
+        frozen = undefined;
         draft = undefined;
         suggestionReason = undefined;
         draftName = "";
@@ -167,6 +192,7 @@ export async function runSelector(
       } else {
         const region = regionSchema.parse(action.region);
         let profile;
+        let pendingProfile;
         if (action.name) {
           if (!w)
             throw new Error(
@@ -199,26 +225,29 @@ export async function runSelector(
             throw new Error(
               "Name already exists. Use a new name to save adjusted geometry.",
             );
-          profile = existing ?? (await profiles.save(candidate));
+          profile = existing;
+          if (!existing) pendingProfile = candidate;
         }
-        if (action.action === "capture")
-          return {
+        if (action.action === "capture") {
+          const saved = await service.savePreview(
+            frozen,
             region,
-            profile,
-            ...(await service.capture(
-              {
-                ...target,
-                case_id: project || undefined,
-                name: undefined,
-                profile: undefined,
-                region,
-                reject_same_as,
-                persist: true,
-                include_image: false,
-              } as Parameters<CaptureService["capture"]>[0],
-              signal,
-            )),
-          };
+            { case_id: project || undefined, label, note, exchange_id, tags },
+            reject_same_as,
+            signal,
+          );
+          if (pendingProfile) {
+            try {
+              profile = await profiles.save(pendingProfile);
+            } catch (e) {
+              saved.metadata.warnings.push(
+                `Evidence saved, but profile was not created: ${e instanceof Error ? e.message : String(e)}`,
+              );
+            }
+          }
+          return { region, profile, ...saved };
+        }
+        if (pendingProfile) profile = await profiles.save(pendingProfile);
         return {
           region,
           profile,

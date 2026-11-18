@@ -1,6 +1,5 @@
 import { captureGuide, captureInstructions } from "./workflow.js";
 import { runSelector, selectionSuggestionSchema } from "./selector.js";
-import { profilesRoot } from "./settings.js";
 import {
   ProfileStore,
   profileSchema,
@@ -362,7 +361,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
         ),
       ),
   );
-  const profiles = new ProfileStore(profilesRoot());
+  const profiles = new ProfileStore(service.profileDirectory);
   server.registerTool(
     "save_capture_profile",
     {
@@ -377,11 +376,11 @@ export function createServer(service = new CaptureService(), version = "dev") {
     "list_capture_profiles",
     {
       description:
-        "List saved geometric region profiles. Layout changes require recalibration.",
+        "List saved geometric region profiles and warnings for invalid files skipped. Layout changes require recalibration.",
       inputSchema: {},
       annotations: readAnnotations,
     },
-    () => guarded(async () => textResult({ profiles: await profiles.list() })),
+    () => guarded(async () => textResult(await profiles.scan())),
   );
   server.registerTool(
     "delete_capture_profile",
@@ -401,7 +400,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
     "select_capture_region",
     {
       description:
-        "Required confirmation step for suggested natural-language crops. First inspect capture_window(persist=false, include_image=true) without crop/profile. Send request and suggestion using that preview hash and normalized top-left coordinates; stale suggestions are discarded. The server does not infer semantics itself. Open the capture workspace with a window/display preview, saved profiles, target selection, full-image selection and settings. Confirm returns a region and optionally creates a profile; Capture and save persists evidence. Keep the same connection as the preview. Allow at least 330000 ms client timeout per interactive step (settings can add steps). A metadata.persisted=true result means already saved; region-only means selection confirmed, not saved. Read get_capture_guide for the full workflow.",
+        "Required confirmation step for suggested natural-language crops. First inspect capture_window(persist=false, include_image=true) without crop/profile. Send request and suggestion using that preview hash and normalized top-left coordinates; stale suggestions are discarded. The server does not infer semantics itself. Open the capture workspace with a window/display preview, saved profiles, target selection, full-image selection and settings. Confirm returns a region and optionally creates a profile; Capture and save persists the approved crop of the exact frozen preview, preserving its capture time. Keep the same connection as the preview. Allow at least 330000 ms client timeout per interactive step (settings can add steps). A metadata.persisted=true result means already saved; region-only means selection confirmed, not saved. Read get_capture_guide for the full workflow.",
       inputSchema: {
         ...windowFields,
         request: z
@@ -415,6 +414,10 @@ export function createServer(service = new CaptureService(), version = "dev") {
           ),
         suggestion: selectionSuggestionSchema.optional(),
         reject_same_as: evidenceFields.reject_same_as,
+        label: evidenceFields.label,
+        note: evidenceFields.note,
+        exchange_id: evidenceFields.exchange_id,
+        tags: evidenceFields.tags,
         case_id: z.string().trim().max(120).optional(),
         display: z.number().int().positive().optional(),
         name: profileName

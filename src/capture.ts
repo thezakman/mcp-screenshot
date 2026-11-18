@@ -103,7 +103,7 @@ export class CaptureService {
     readonly store = new EvidenceStore(),
     private backend: Backend = systemBackend,
     blocked = process.env.BLOCKED_APPS ?? "",
-    private profileDirectory = profilesRoot(),
+    readonly profileDirectory = profilesRoot(),
   ) {
     this.blocked = blocked
       .split(",")
@@ -142,6 +142,65 @@ export class CaptureService {
     return this.backend.displays();
   }
   async capture(options: CaptureOptions, signal?: AbortSignal) {
+    return this.captureFrame(options, signal, false);
+  }
+  // Local previews never cross the MCP inline image transport.
+  async localPreview(options: CaptureOptions, signal?: AbortSignal) {
+    return this.captureFrame(
+      { ...options, persist: false, include_image: true },
+      signal,
+      true,
+    );
+  }
+  async savePreview(
+    preview: { metadata: CaptureMetadata; image: string },
+    region: Region,
+    context: EvidenceContext,
+    rejectSameAs: string[] = [],
+    signal?: AbortSignal,
+  ) {
+    return this.queue.run(async () => {
+      const source = Buffer.from(preview.image, "base64");
+      if (pngInfo(source).sha256 !== preview.metadata.sha256)
+        throw new Error("Preview integrity check failed.");
+      const data = await cropImage(source, region);
+      const metadata: CaptureMetadata = {
+        ...preview.metadata,
+        ...pngInfo(data),
+        crop: {
+          region,
+          source_width: preview.metadata.width,
+          source_height: preview.metadata.height,
+        },
+        warnings: [...preview.metadata.warnings],
+      };
+      await this.rejectDuplicates(metadata.sha256, rejectSameAs);
+      signal?.throwIfAborted();
+      return {
+        metadata: {
+          ...(await this.store.save(data, metadata, context)),
+          persisted: true,
+          image_included: false,
+        },
+      };
+    }, signal);
+  }
+  private async rejectDuplicates(hash: string, ids: string[]) {
+    for (const id of ids) {
+      if ((await this.store.get(id)).sha256 === hash)
+        throw new ScreenshotError(
+          "DUPLICATE_CAPTURE",
+          "Image matches previous evidence " +
+            id +
+            ". Nothing saved. Select and visually verify the next item before retrying.",
+        );
+    }
+  }
+  private async captureFrame(
+    options: CaptureOptions,
+    signal: AbortSignal | undefined,
+    local: boolean,
+  ) {
     return this.queue.run(async () => {
       if (options.persist === false && !options.include_image)
         throw new ScreenshotError(
@@ -254,7 +313,7 @@ export class CaptureService {
       let region = options.region;
       if (options.profile) {
         if (region || !window) throw new Error("INVALID_PROFILE_TARGET");
-        const profile = await new ProfileStore(this.store.root).get(
+        const profile = await new ProfileStore(this.profileDirectory).get(
           options.profile,
         );
         if (
@@ -307,16 +366,7 @@ export class CaptureService {
           : "display_selected",
         warnings,
       };
-      for (const id of options.reject_same_as ?? []) {
-        const previous = await this.store.get(id);
-        if (previous.sha256 === meta.sha256)
-          throw new ScreenshotError(
-            "DUPLICATE_CAPTURE",
-            "Image matches previous evidence " +
-              id +
-              ". Nothing saved. Select and visually verify the next item before retrying.",
-          );
-      }
+      await this.rejectDuplicates(meta.sha256, options.reject_same_as ?? []);
       const context: EvidenceContext = Object.fromEntries(
         Object.entries({
           case_id: options.case_id,
@@ -326,7 +376,7 @@ export class CaptureService {
           tags: options.tags,
         }).filter(([, v]) => v !== undefined),
       );
-      if (options.persist === false && data.length > MAX_IMAGE_BYTES)
+      if (!local && options.persist === false && data.length > MAX_IMAGE_BYTES)
         throw new ScreenshotError(
           "IMAGE_TOO_LARGE",
           "Inline image exceeds 5 MiB. Retry with persist=true to save it losslessly.",
@@ -348,12 +398,13 @@ export class CaptureService {
           );
         }
       }
-      const inline = options.include_image && data.length <= MAX_IMAGE_BYTES;
+      const inline =
+        options.include_image && (local || data.length <= MAX_IMAGE_BYTES);
       if (options.include_image && !inline)
         result.warnings.push(
           "Inline image omitted: exceeds 5 MiB. The full PNG is saved on disk.",
         );
-      if (options.persist === false && inline && !region) {
+      if (!local && options.persist === false && inline && !region) {
         this.previews.set(meta.sha256, {
           metadata: meta,
           image: data.toString("base64"),

@@ -1,6 +1,6 @@
 import { ProfileStore } from "../src/regions.js";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CaptureService, type Backend } from "../src/capture.js";
@@ -148,4 +148,105 @@ it("retains the inspected preview but rejects changed window bounds and expired 
   } finally {
     now.mockRestore();
   }
+});
+
+it("keeps profiles in their configured directory after changing evidence destination", async () => {
+  await new ProfileStore(root).save({
+    name: "fixed",
+    version: 1,
+    app: WINDOW.bundleId,
+    width: WINDOW.bounds.width,
+    height: WINDOW.bounds.height,
+    region: { x: 0, y: 0, width: 1, height: 1 },
+  });
+  service.store.root = join(root, "new-destination");
+  const result = await service.capture({
+    window_id: WINDOW.id,
+    profile: "fixed",
+  });
+  expect(result.metadata.persisted).toBe(true);
+  expect((await service.store.list()).items).toHaveLength(1);
+});
+it("allows large local previews without persistence while enforcing MCP inline limits", async () => {
+  const { crc32 } = await import("../src/png.js");
+  const payload = Buffer.alloc(5 * 1024 * 1024 + 1);
+  const chunk = Buffer.alloc(payload.length + 12);
+  chunk.writeUInt32BE(payload.length, 0);
+  chunk.write("tEXt", 4);
+  payload.copy(chunk, 8);
+  chunk.writeUInt32BE(crc32(chunk.subarray(4, -4)), chunk.length - 4);
+  const large = Buffer.concat([PNG.subarray(0, 33), chunk, PNG.subarray(33)]);
+  vi.mocked(backend.capture).mockResolvedValue(large);
+  await expect(
+    service.capture({
+      window_id: WINDOW.id,
+      persist: false,
+      include_image: true,
+    }),
+  ).rejects.toThrow("5 MiB");
+  const preview = await service.localPreview({ window_id: WINDOW.id });
+  expect(preview.image).toBe(large.toString("base64"));
+  expect(preview.metadata.persisted).toBe(false);
+  expect((await service.store.list()).items).toHaveLength(0);
+});
+
+it("saves inspected pixels even if the live window subsequently changes", async () => {
+  const preview = await service.localPreview({ window_id: WINDOW.id });
+  vi.mocked(backend.capture).mockRejectedValue(
+    new Error("Live source unavailable"),
+  );
+  vi.mocked(backend.windows).mockResolvedValue([]);
+  const saved = await service.savePreview(
+    { metadata: preview.metadata, image: preview.image! },
+    { x: 0, y: 0, width: 1, height: 1 },
+    {},
+  );
+  expect(saved.metadata.sha256).toBe(preview.metadata.sha256);
+  expect(saved.metadata.captured_at).toBe(preview.metadata.captured_at);
+  expect(backend.capture).toHaveBeenCalledTimes(1);
+  await expect(
+    service.savePreview(
+      { metadata: preview.metadata, image: preview.image! },
+      { x: 0, y: 0, width: 1, height: 1 },
+      {},
+      [saved.metadata.id],
+    ),
+  ).rejects.toThrow("Nothing saved");
+  expect((await service.store.list()).items).toHaveLength(1);
+});
+it("rejects altered preview provenance before saving", async () => {
+  const preview = await service.localPreview({ window_id: WINDOW.id });
+  await expect(
+    service.savePreview(
+      {
+        metadata: { ...preview.metadata, sha256: "0".repeat(64) },
+        image: preview.image!,
+      },
+      { x: 0, y: 0, width: 1, height: 1 },
+      {},
+    ),
+  ).rejects.toThrow("integrity");
+  expect((await service.store.list()).items).toHaveLength(0);
+});
+
+it("rejects a misnamed profile before accessing the screenshot backend", async () => {
+  const profiles = new ProfileStore(root);
+  const profile = {
+    name: "original",
+    version: 1 as const,
+    app: WINDOW.bundleId,
+    width: WINDOW.bounds.width,
+    height: WINDOW.bounds.height,
+    region: { x: 0, y: 0, width: 1, height: 1 },
+  };
+  await profiles.save(profile);
+  await writeFile(
+    join(root, "profiles", "alias.json"),
+    JSON.stringify(profile),
+  );
+  await expect(
+    service.capture({ window_id: WINDOW.id, profile: "alias" }),
+  ).rejects.toMatchObject({ code: "INVALID_PROFILE" });
+  expect(backend.capture).not.toHaveBeenCalled();
+  expect((await service.store.list()).items).toHaveLength(0);
 });
