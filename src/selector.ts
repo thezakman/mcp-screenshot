@@ -4,6 +4,7 @@ import { ScreenshotError } from "./errors.js";
 import { CaptureService } from "./capture.js";
 import {
   ProfileStore,
+  matchesProfileWindow,
   profileName,
   regionSchema,
   selectRegion,
@@ -164,10 +165,17 @@ async function runSelectorSession(
     const compatible = inventory.profiles.filter(
       (p) =>
         w &&
-        p.app === (w.bundleId || w.app) &&
-        p.width === w.bounds.width &&
-        p.height === w.bounds.height,
+        matchesProfileWindow(
+          p,
+          w.bundleId || w.app,
+          w.bounds.width,
+          w.bounds.height,
+        ),
     );
+    if (iteration === 0 && draftName) {
+      keepOriginal =
+        compatible.find((p) => p.name === draftName)?.keep_original ?? false;
+    }
     const context = {
       locale,
       preferences: capturePreferences(),
@@ -296,6 +304,7 @@ async function runSelectorSession(
             app: w.bundleId || w.app,
             width: w.bounds.width,
             height: w.bounds.height,
+            keep_original: keepOriginal,
             region,
           };
           const existing = (await profiles.list()).find(
@@ -303,9 +312,12 @@ async function runSelectorSession(
           );
           if (
             existing &&
-            (existing.app !== candidate.app ||
-              existing.width !== candidate.width ||
-              existing.height !== candidate.height ||
+            (!matchesProfileWindow(
+              existing,
+              candidate.app,
+              candidate.width,
+              candidate.height,
+            ) ||
               Object.keys(region).some(
                 (k) =>
                   Math.abs(
@@ -359,7 +371,12 @@ async function runSelectorSession(
         };
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error =
+        e instanceof z.ZodError
+          ? e.issues.map((issue) => issue.message).join("\n")
+          : e instanceof Error
+            ? e.message
+            : String(e);
     }
   }
   throw new Error("Too many selector operations. Reopen the selector.");

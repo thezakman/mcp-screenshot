@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { appliedMasks, maskSchema, type Mask } from "../src/redaction.js";
 import { EvidenceStore, pngInfo } from "../src/evidence.js";
+import { presentEvidence } from "../src/responses.js";
 import { exportEvidence } from "../src/export.js";
 import { PNG } from "./helpers.js";
 import { mkdtemp, rm, readFile, readdir, writeFile } from "node:fs/promises";
@@ -66,6 +67,14 @@ it("uses the primary image by default and exports a verified original only on re
       PNG,
     );
     expect((await store.get(item.id, true)).path).toBe(item.path);
+    expect(presentEvidence(item)).toMatchObject({
+      image: "screenshot_redacted.png",
+      original_retained: true,
+    });
+    expect(presentEvidence(old)).toMatchObject({
+      image: "screenshot.png",
+      original_retained: false,
+    });
     for (const include of [false, true]) {
       const bundle = await exportEvidence(
         store,

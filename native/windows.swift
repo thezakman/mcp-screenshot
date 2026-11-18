@@ -70,6 +70,8 @@ func dialogMessage(_ message: String) -> String {
       of: "Corrija ou remova esse arquivo para recuperá-lo.", with: "Repair or remove the file.")
   }
   let translations = [
+    "Profile name must start with a lowercase letter or digit. Use up to 64 lowercase ASCII letters, digits or hyphens.":
+      "Nome do perfil inválido. Comece com uma letra de a a z ou um número. Use até 64 caracteres entre letras minúsculas sem acento, números e hífens.",
     "The suggested masks belong to an older preview. Review the crop and mark the sensitive areas again.":
       "As máscaras foram sugeridas para outra prévia. Revise o recorte e marque novamente as áreas sensíveis.",
     "Name already exists. Use a new name to save adjusted geometry.":
@@ -80,7 +82,7 @@ func dialogMessage(_ message: String) -> String {
     "Invalid target": "Origem inválida.",
     "Original checksum mismatch.": "A soma de verificação do original divergiu.",
   ]
-  return english ? message : translations[message] ?? message
+  return english ? message : message.components(separatedBy:"\n").map { translations[$0] ?? $0 }.joined(separator:"\n")
 }
 let command = CommandLine.arguments.dropFirst().first ?? "status"
 do {
@@ -189,13 +191,19 @@ do {
         targets.setContentCompressionResistancePriority(.defaultLow, for:.horizontal)
         reload.toolTip=L("Obtém uma nova imagem e limpa a seleção anterior para você revisar o conteúdo atual.","Take a fresh image and clear the previous selection.")
         section(L("ORIGEM","SOURCE"),NSStackView(views:[targets,reload]))
-        let names=NSPopUpButton()
-        names.addItem(withTitle:L("Seleção livre","Free selection"))
-        for profile in config["profiles"] as? [[String:Any]] ?? [] { names.addItem(withTitle:profile["name"] as? String ?? "") }
-        if let current=config["name"] as? String,names.itemTitles.contains(current) {names.selectItem(withTitle:current)}
-        names.target=region; names.action=#selector(RegionView.loadProfile(_:)); section(L("REGIÃO FIXA","FIXED REGION"),names)
+        if let profiles = config["profiles"] as? [[String:Any]], !profiles.isEmpty {
+            let names = NSPopUpButton()
+            names.addItem(withTitle:L("Seleção livre","Free selection"))
+            for profile in profiles { names.addItem(withTitle:profile["name"] as? String ?? "") }
+            if let current = config["name"] as? String, names.itemTitles.contains(current) {
+                names.selectItem(withTitle:current)
+            }
+            names.target = region
+            names.action = #selector(RegionView.loadProfile(_:))
+            section(L("CARREGAR PERFIL","LOAD PROFILE"), names)
+        }
         let name=NSTextField()
-        name.placeholderString=L("Opcional","Optional"); name.stringValue=config["name"] as? String ?? ""
+        name.placeholderString=L("Opcional · ex. burp-repeater","Optional · e.g. burp-repeater"); name.stringValue=config["name"] as? String ?? ""
         name.heightAnchor.constraint(equalToConstant:28).isActive=true; region.nameField=name
         name.toolTip=L("Salva coordenadas fixas; não se adapta ao tamanho de novos payloads ou respostas. Deixe vazio para capturar somente agora.","Save fixed coordinates. Leave blank for a one-time capture."); section(L("NOME DO PERFIL","PROFILE NAME"),name)
         let redact=NSButton(checkboxWithTitle:L("Editar máscaras","Edit masks"),target:region,action:#selector(RegionView.togglePrivacy(_:)))
@@ -223,7 +231,7 @@ do {
       checkboxWithTitle: L("Incluir original sem censura", "Include unredacted original"),
       target: nil, action: nil)
     original.toolTip = L(
-      "O original contém os dados ocultos.", "The original contains the hidden data.")
+      "Guarda o original junto à captura censurada. Um novo perfil lembra esta escolha.", "Keep the original alongside the redacted capture. A new profile remembers this choice.")
     original.state = config["keep_original"] as? Bool == true ? .on : .off
     let applyMasks = NSButton(
       checkboxWithTitle: L("Aplicar máscaras", "Apply masks"), target: region,
@@ -438,8 +446,7 @@ final class RegionView: NSView, NSWindowDelegate {
     captureButton?.title = any ? L("Salvar com censura","Save redacted image") : L("Capturar e salvar","Capture and save")
     sensitivityLabel?.isHidden = !any
     classification?.isHidden = any
-    originalToggle?.isHidden = !any
-    if !any { originalToggle?.state = .off }
+    originalToggle?.isHidden = !any && !editingMasks && originalToggle?.state != .on
     deleteButton?.isHidden = activeMask == nil
     if let i = activeMask {
       scopeLabel?.stringValue = L("Máscara","Mask") + " \(i + 1) / \(masks.count)"
@@ -685,7 +692,7 @@ final class RegionView: NSView, NSWindowDelegate {
         catch {NSSound.beep();return}
         switch classification?.isEnabled == true ? classification?.indexOfSelectedItem : previousClassification {case 1: response["sensitive"]=true;case 2:response["sensitive"]=false;default:response["sensitive"]=NSNull()}
         response["apply_masks"]=applying
-        response["keep_original"]=originalToggle?.state == .on && masks.contains(where:overlapsCrop)
+        response["keep_original"]=originalToggle?.state == .on
         response["draft_name"] = nameField?.stringValue ?? ""
         response["case_id"] = projectField?.stringValue ?? ""
         response["description_text"] = descriptionField?.stringValue ?? ""
@@ -713,8 +720,9 @@ final class RegionView: NSView, NSWindowDelegate {
         let profiles=configuration["profiles"] as? [[String:Any]] ?? []
         let index=sender.indexOfSelectedItem-1
         guard index>=0 && index<profiles.count, let r=profiles[index]["region"] as? [String:Double],
-              let x=r["x"], let y=r["y"], let w=r["width"], let h=r["height"] else { nameField?.stringValue=""; return }
+              let x=r["x"], let y=r["y"], let w=r["width"], let h=r["height"] else { nameField?.stringValue=""; originalToggle?.state = .off; syncPrivacy(); return }
         selection=NSRect(x:x*bounds.width,y:(1-y-h)*bounds.height,width:w*bounds.width,height:h*bounds.height)
+        originalToggle?.state = profiles[index]["keep_original"] as? Bool == true ? .on : .off
         cropChanged(); nameField?.stringValue=profiles[index]["name"] as? String ?? ""; refresh()
     }
     @objc func reloadPreview() { finish(["action":"refresh"]) }

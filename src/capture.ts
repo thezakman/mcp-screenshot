@@ -1,6 +1,11 @@
 import { appliedMasks, renderMasks, type Mask } from "./redaction.js";
 import { profilesRoot } from "./settings.js";
-import { cropImage, ProfileStore, type Region } from "./regions.js";
+import {
+  cropImage,
+  matchesProfileWindow,
+  ProfileStore,
+  type Region,
+} from "./regions.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
@@ -345,9 +350,12 @@ export class CaptureService {
           options.profile,
         );
         if (
-          profile.app !== (window.bundleId || window.app) ||
-          profile.width !== window.bounds.width ||
-          profile.height !== window.bounds.height
+          !matchesProfileWindow(
+            profile,
+            window.bundleId || window.app,
+            window.bounds.width,
+            window.bounds.height,
+          )
         )
           throw new Error(
             "PROFILE_MISMATCH: recalibrate for this app and window size.",
@@ -395,6 +403,7 @@ export class CaptureService {
         warnings,
       };
       await this.rejectDuplicates(meta.sha256, options.reject_same_as ?? []);
+      signal?.throwIfAborted();
       const context: EvidenceContext = Object.fromEntries(
         Object.entries({
           case_id: options.case_id,

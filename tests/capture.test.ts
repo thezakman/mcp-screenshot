@@ -95,6 +95,22 @@ it("rejects a reused OS window ID using the selection token without capturing", 
   expect(backend.capture).not.toHaveBeenCalled();
 });
 
+it("captures directly with a saved profile after a one-point resize", async () => {
+  await new ProfileStore(root).save({
+    name: "repeater",
+    version: 1,
+    app: WINDOW.bundleId,
+    width: WINDOW.bounds.width,
+    height: WINDOW.bounds.height + 1,
+    region: { x: 0, y: 0, width: 1, height: 1 },
+  });
+  const result = await service.capture({
+    window_id: WINDOW.id,
+    profile: "repeater",
+  });
+  expect(result.metadata.persisted).toBe(true);
+  expect(backend.capture).toHaveBeenCalledTimes(1);
+});
 it("rejects mismatched profile dimensions before capturing or saving", async () => {
   await new ProfileStore(root).save({
     name: "response",
@@ -111,6 +127,24 @@ it("rejects mismatched profile dimensions before capturing or saving", async () 
   expect((await service.store.list()).items).toHaveLength(0);
 });
 
+it("honors cancellation during duplicate verification before saving", async () => {
+  const first = await service.capture({ window_id: WINDOW.id });
+  if (!("id" in first.metadata)) throw new Error("Expected saved evidence");
+  const prior = await service.store.get(first.metadata.id);
+  const controller = new AbortController();
+  vi.spyOn(service.store, "get").mockImplementationOnce(async () => {
+    controller.abort();
+    return { ...prior, sha256: "0".repeat(64) };
+  });
+  const save = vi.spyOn(service.store, "save");
+  await expect(
+    service.capture(
+      { window_id: WINDOW.id, reject_same_as: [prior.id] },
+      controller.signal,
+    ),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  expect(save).not.toHaveBeenCalled();
+});
 it("rejects identical captures before creating evidence for the next item", async () => {
   const first = await service.capture({ window_id: 42 });
   await expect(

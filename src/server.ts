@@ -8,7 +8,6 @@ import {
   profileSchema,
   profileName,
   regionSchema,
-  selectRegion,
 } from "./regions.js";
 import { native } from "./native.js";
 import { reviewInput, reviewStatus } from "./reviews.js";
@@ -220,7 +219,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
     {
       description:
         "Capture one OS window without changing focus. Rejects ambiguous selection and window changes; saves PNG and evidence metadata.",
-      inputSchema: { ...windowFields, ...evidenceFields },
+      inputSchema: z.object({ ...windowFields, ...evidenceFields }).strict(),
       annotations: captureAnnotations,
     },
     (args, extra) => guarded(() => captureResult(args, extra.signal)),
@@ -230,11 +229,13 @@ export function createServer(service = new CaptureService(), version = "dev") {
     {
       description:
         "Capture a window of an application by exact app name or bundle ID; specify window_id/title if it has multiple windows. Does not switch focus.",
-      inputSchema: {
-        ...windowFields,
-        app_name: z.string().min(1).max(200),
-        ...evidenceFields,
-      },
+      inputSchema: z
+        .object({
+          ...windowFields,
+          app_name: z.string().min(1).max(200),
+          ...evidenceFields,
+        })
+        .strict(),
       annotations: captureAnnotations,
     },
     (args, extra) => guarded(() => captureResult(args, extra.signal)),
@@ -244,12 +245,14 @@ export function createServer(service = new CaptureService(), version = "dev") {
     {
       description:
         "Capture the visible Burp Suite window. Select window_id if multiple Burp windows exist. Does not select Repeater tabs or resend traffic.",
-      inputSchema: {
-        window_id: windowFields.window_id,
-        expected_window_token: windowFields.expected_window_token,
-        title: windowFields.title,
-        ...evidenceFields,
-      },
+      inputSchema: z
+        .object({
+          window_id: windowFields.window_id,
+          expected_window_token: windowFields.expected_window_token,
+          title: windowFields.title,
+          ...evidenceFields,
+        })
+        .strict(),
       annotations: captureAnnotations,
     },
     (args, extra) =>
@@ -260,10 +263,12 @@ export function createServer(service = new CaptureService(), version = "dev") {
     {
       description:
         "Capture an entire monitor. Includes other visible apps; disabled when BLOCKED_APPS is configured.",
-      inputSchema: {
-        display: z.number().int().min(1).default(1),
-        ...evidenceFields,
-      },
+      inputSchema: z
+        .object({
+          display: z.number().int().min(1).default(1),
+          ...evidenceFields,
+        })
+        .strict(),
       annotations: captureAnnotations,
     },
     (args, extra) => guarded(() => captureResult(args, extra.signal)),
@@ -357,16 +362,18 @@ export function createServer(service = new CaptureService(), version = "dev") {
     {
       description:
         "Build an offline HTML/Markdown review package from 1–50 existing evidence IDs. Verify primary PNGs and copy them losslessly; never recapture or upload. Returns local paths only.",
-      inputSchema: {
-        ids: z.array(z.string().max(100)).min(1).max(50),
-        include_original: z
-          .boolean()
-          .default(false)
-          .describe(
-            "Export saved unredacted originals only on explicit request.",
-          ),
-        title: z.string().trim().min(1).max(200).default("Evidence review"),
-      },
+      inputSchema: z
+        .object({
+          ids: z.array(z.string().max(100)).min(1).max(50),
+          include_original: z
+            .boolean()
+            .default(false)
+            .describe(
+              "Export saved unredacted originals only on explicit request.",
+            ),
+          title: z.string().trim().min(1).max(200).default("Evidence review"),
+        })
+        .strict(),
       annotations: captureAnnotations,
     },
     (args, extra) =>
@@ -388,7 +395,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
     {
       description:
         "Create an immutable named geometric profile from explicit normalized coordinates and reference window dimensions. Existing names are never overwritten.",
-      inputSchema: profileSchema.shape,
+      inputSchema: z.object(profileSchema.shape).strict(),
       annotations: captureAnnotations,
     },
     (args) => guarded(async () => textResult(await profiles.save(args))),
@@ -422,48 +429,50 @@ export function createServer(service = new CaptureService(), version = "dev") {
     {
       description:
         "Required confirmation step for suggested natural-language crops. First inspect capture_window(persist=false, include_image=true) without crop/profile. Send request and suggestion using that preview hash and normalized top-left coordinates; stale suggestions are discarded. The server does not infer semantics itself. Open the capture workspace with a window/display preview, saved profiles, target selection, full-image selection and settings. Confirm returns a region and optionally creates a profile; Capture and save persists the approved crop of the exact frozen preview, preserving its capture time. Keep the same connection as the preview. Allow at least 330000 ms client timeout per interactive step (settings can add steps). A metadata.persisted=true result means already saved; region-only means selection confirmed, not saved. Read get_capture_guide for the full workflow.",
-      inputSchema: {
-        ...windowFields,
-        request: z
-          .string()
-          .trim()
-          .min(1)
-          .max(500)
-          .optional()
-          .describe(
-            "User's intended content, displayed in the confirmation dialog.",
-          ),
-        suggestion: selectionSuggestionSchema.optional(),
-        locale: z.enum(["pt-BR", "en"]).optional(),
-        redact: z
-          .boolean()
-          .optional()
-          .describe(
-            "User requested redaction. Open editor even if no areas were found.",
-          ),
-        mask_suggestion: z
-          .object({
-            source_sha256: z.string().regex(/^[a-f0-9]{64}$/),
-            masks: masksSchema,
-          })
-          .optional()
-          .describe(
-            "Normalized top-left boxes in inspected full preview. Never include the sensitive values.",
-          ),
-        reject_same_as: evidenceFields.reject_same_as,
-        label: evidenceFields.label,
-        note: evidenceFields.note,
-        description: evidenceFields.description,
-        exchange_id: evidenceFields.exchange_id,
-        tags: evidenceFields.tags,
-        case_id: z.string().trim().max(120).optional(),
-        display: z.number().int().positive().optional(),
-        name: profileName
-          .optional()
-          .describe(
-            "Optional fixed geometric profile name. Omit for dynamic content-fitted crops; supply only when the user explicitly asks to save/reuse a fixed region.",
-          ),
-      },
+      inputSchema: z
+        .object({
+          ...windowFields,
+          request: z
+            .string()
+            .trim()
+            .min(1)
+            .max(500)
+            .optional()
+            .describe(
+              "User's intended content, displayed in the confirmation dialog.",
+            ),
+          suggestion: selectionSuggestionSchema.optional(),
+          locale: z.enum(["pt-BR", "en"]).optional(),
+          redact: z
+            .boolean()
+            .optional()
+            .describe(
+              "User requested redaction. Open editor even if no areas were found.",
+            ),
+          mask_suggestion: z
+            .object({
+              source_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+              masks: masksSchema,
+            })
+            .optional()
+            .describe(
+              "Normalized top-left boxes in inspected full preview. Never include the sensitive values.",
+            ),
+          reject_same_as: evidenceFields.reject_same_as,
+          label: evidenceFields.label,
+          note: evidenceFields.note,
+          description: evidenceFields.description,
+          exchange_id: evidenceFields.exchange_id,
+          tags: evidenceFields.tags,
+          case_id: z.string().trim().max(120).optional(),
+          display: z.number().int().positive().optional(),
+          name: profileName
+            .optional()
+            .describe(
+              "Optional fixed geometric profile name. Omit for dynamic content-fitted crops; supply only when the user explicitly asks to save/reuse a fixed region.",
+            ),
+        })
+        .strict(),
       annotations: captureAnnotations,
     },
     (args, extra) =>
@@ -481,7 +490,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
     {
       description:
         "Capture the frontmost application's unique visible window. Multiple windows require explicit selection.",
-      inputSchema: evidenceFields,
+      inputSchema: z.object(evidenceFields).strict(),
       annotations: captureAnnotations,
     },
     (args, extra) =>

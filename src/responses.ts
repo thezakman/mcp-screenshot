@@ -15,7 +15,7 @@ export function presentReview(review: ReviewState) {
   };
 }
 type EvidenceView = CaptureMetadata &
-  Partial<Pick<Evidence, "id" | "context" | "association">> & {
+  Partial<Pick<Evidence, "id" | "context" | "association" | "image">> & {
     path?: string;
     exported_path?: string;
     integrity?: string;
@@ -51,6 +51,8 @@ export function presentEvidence(
         : undefined,
       display: item.display,
       crop: item.crop,
+      image: item.image,
+      original_retained: item.id ? Boolean(item.original) : undefined,
       sensitive: item.sensitive,
       redaction_count: item.redactions?.length,
       selection: item.selection,

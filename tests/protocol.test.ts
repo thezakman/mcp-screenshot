@@ -75,7 +75,9 @@ describe("MCP protocol", () => {
         (guideResult.content as { text: string }[])[0].text,
       );
       expect(guide.workflow.join(" ")).toContain("SAME MCP server connection");
-      expect(guide.fixed_profiles).toContain("fixed coordinates only");
+      expect(guide.fixed_profiles).toContain(
+        "fixed coordinates and the original-retention preference",
+      );
       expect(backend.capture).not.toHaveBeenCalled();
       const selector = tools.find((t) => t.name === "select_capture_region")!;
       expect(selector.inputSchema.properties).toHaveProperty("suggestion");
@@ -83,6 +85,12 @@ describe("MCP protocol", () => {
       expect(
         tools.find((t) => t.name === "capture_window")!.inputSchema.properties,
       ).toHaveProperty("reject_same_as");
+      const unsupported = await client.callTool({
+        name: "capture_window",
+        arguments: { window_id: WINDOW.id, redact: true },
+      });
+      expect(unsupported.isError).toBe(true);
+      expect(backend.capture).not.toHaveBeenCalled();
       const result = await client.callTool({
         name: "capture_burp_screenshot",
         arguments: { case_id: "local-fixture" },

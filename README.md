@@ -89,6 +89,18 @@ Replace the absolute paths for your machine. Use either the CLI command or the T
 
 Reference: [OpenAI documentation — MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
 
+### Optional Codex skill
+
+With the MCP server connected, install the [capture skill](skills/mcp-screenshot/SKILL.md) from the repository root:
+
+```sh
+skill_dir="${CODEX_HOME:-$HOME/.codex}/skills/mcp-screenshot"
+mkdir -p "$skill_dir"
+cp skills/mcp-screenshot/SKILL.md "$skill_dir/SKILL.md"
+```
+
+Start a new Codex session and try: `Use $mcp-screenshot to save the entire Chrome window without opening the selector.`
+
 ### MCP client configuration
 
 For clients using a JSON `mcpServers` configuration:
@@ -343,7 +355,7 @@ session can run at a time per server process, including preview generation, sett
 
 Then call `capture_window` with the current `window_id` and
 `profile: "burp-response"`. Profiles survive restarts. They require the same app
-identity and window dimensions, but allow the window to move. They are geometric
+identity and allow up to one macOS point of difference per window dimension. The window can move. They are geometric
 markers: changing a panel divider, scrolling, zooming or switching tabs may change
 what appears inside the region without triggering a mismatch. Recalibrate after
 layout changes. No full-window fallback occurs when a profile fails.
@@ -379,8 +391,7 @@ or `display`; the target menu can then switch between available windows and
 monitors. **Imagem inteira** selects the entire current image. To capture a whole
 screen, first choose its monitor in the target menu.
 
-The profile menu shows profiles compatible with the current app and window size.
-Load one to restore its rectangle. Enter a new name in the adjacent field to
+Under **Carregar perfil / Load profile**, choose a saved crop. This menu appears when the selected window has compatible profiles. Enter a new name in the adjacent field to
 create another profile. Existing names cannot silently overwrite geometry: use a
 new name for adjustments. **Salvar apenas a seleção** returns the region and saves a named
 profile; **Capturar e salvar** saves PNG/JSON evidence from the exact frozen preview, retaining its original capture time. Settings changes and retries keep that image; **Atualizar prévia** stays bound to the inspected window identity and obtains a new image and clears the previous selection and fixed-profile name for a new review. A new profile is created only after evidence saving succeeds. If profile creation then fails, the result returns the saved evidence and a warning, avoiding an accidental duplicate capture. **Limpar região** clears the region without deleting profiles.
@@ -495,9 +506,8 @@ read this preference from `get_capture_status` before inspecting a preview.
 Pass the conversation's `locale` to the selector. In automatic mode the system
 language is the fallback. The description has its own language field.
 
-The primary file is named by `metadata.json.image`. Masked captures use
-`screenshot_redacted.png`. Retaining `screenshot_original.png` is opt-in per
-capture. Exports include that copy only with explicit `include_original: true`.
+Direct capture tools reject unsupported arguments. Use `select_capture_region` to review masks before saving. The default evidence summary includes `image` and `original_retained` for saved captures. The primary file is named by `metadata.json.image`. Masked captures use
+`screenshot_redacted.png`. New fixed profiles remember the **Include unredacted original** checkbox as `keep_original`. Loading a profile restores that default; older profiles default to off. You can override it for one capture or save a new profile name for a different default. The extra PNG is written only when masks are applied. Exports include that copy only with explicit `include_original: true`.
 `sensitive` classifies the source crop: true, explicitly reviewed false, or
 null (also the default when reading legacy captures). Applied redaction boxes
 describe covered pixels relative to the saved crop. Suggestions are temporary.

@@ -53,6 +53,36 @@ it("creates a profile through the dialog without persisting a screenshot", async
   );
   expect((await service.store.list()).items).toEqual([]);
 });
+it.each([true, false])(
+  "restores the saved keep_original preference (%s)",
+  async (keep) => {
+    const region = { x: 0, y: 0, width: 1, height: 1 };
+    vi.mocked(selectRegion)
+      .mockResolvedValueOnce({
+        action: "confirm",
+        region,
+        name: "privacy",
+        keep_original: keep,
+      })
+      .mockResolvedValueOnce({ action: "capture", region, name: "privacy" });
+    await runSelector(
+      service,
+      { window_id: WINDOW.id },
+      new AbortController().signal,
+    );
+    expect(
+      (await new ProfileStore(state.root).get("privacy")).keep_original,
+    ).toBe(keep);
+    const result = await runSelector(
+      service,
+      { window_id: WINDOW.id, name: "privacy" },
+      new AbortController().signal,
+    );
+    expect(vi.mocked(selectRegion).mock.calls[1][2]?.keep_original).toBe(keep);
+    if (!("metadata" in result)) throw new Error("Missing saved evidence");
+    expect(result.metadata.original).toBeUndefined();
+  },
+);
 it("keeps existing profiles intact and reopens with a useful error on name collision", async () => {
   const profiles = new ProfileStore(state.root);
   await profiles.save({
@@ -84,6 +114,30 @@ it("keeps existing profiles intact and reopens with a useful error on name colli
   );
   expect((await profiles.get("test-region")).region.width).toBe(1);
   expect((await profiles.get("new-region")).region.width).toBe(0.5);
+});
+it("offers and reuses a fixed region after a one-point window resize", async () => {
+  const store = new ProfileStore(state.root);
+  const saved = await store.save({
+    name: "burp-payload",
+    version: 1,
+    app: WINDOW.bundleId,
+    width: WINDOW.bounds.width,
+    height: WINDOW.bounds.height + 1,
+    region: { x: 0, y: 0, width: 1, height: 1 },
+  });
+  await store.save({ ...saved, name: "larger", height: saved.height + 1 });
+  vi.mocked(selectRegion).mockResolvedValueOnce({
+    action: "confirm",
+    name: saved.name,
+    region: saved.region,
+  });
+  await runSelector(
+    service,
+    { window_id: WINDOW.id },
+    new AbortController().signal,
+  );
+  expect(vi.mocked(selectRegion).mock.calls[0][2]?.profiles).toEqual([saved]);
+  expect(await store.get(saved.name)).toEqual(saved);
 });
 it("rename refuses collisions and preserves the source", async () => {
   const profiles = new ProfileStore(state.root);

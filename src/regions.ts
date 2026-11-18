@@ -17,8 +17,8 @@ import { pngInfo } from "./png.js";
 import { assertDirectory, readBounded } from "./storage.js";
 export const regionSchema = z
   .object({
-    x: z.number().min(0).max(1),
-    y: z.number().min(0).max(1),
+    x: z.number().min(0).lt(1),
+    y: z.number().min(0).lt(1),
     width: z.number().positive().max(1),
     height: z.number().positive().max(1),
   })
@@ -27,7 +27,12 @@ export const regionSchema = z
     "Region exceeds image",
   );
 export type Region = z.infer<typeof regionSchema>;
-export const profileName = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
+export const profileName = z
+  .string()
+  .regex(
+    /^[a-z0-9][a-z0-9-]{0,63}$/,
+    "Profile name must start with a lowercase letter or digit. Use up to 64 lowercase ASCII letters, digits or hyphens.",
+  );
 export const profileSchema = z.object({
   name: profileName,
   version: z.literal(1),
@@ -35,7 +40,26 @@ export const profileSchema = z.object({
   width: z.number().finite().positive(),
   height: z.number().finite().positive(),
   region: regionSchema,
+  keep_original: z
+    .boolean()
+    .optional()
+    .describe(
+      "Include the unredacted original by default when saving a masked capture. Defaults to false.",
+    ),
 });
+export function matchesProfileWindow(
+  profile: { app: string; width: number; height: number },
+  app: string,
+  width: number,
+  height: number,
+) {
+  return (
+    profile.app === app &&
+    Math.abs(profile.width - width) <= 1 &&
+    Math.abs(profile.height - height) <= 1
+  );
+}
+
 export class ProfileStore {
   constructor(readonly root: string) {}
   async directory(create = false) {

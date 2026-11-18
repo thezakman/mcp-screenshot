@@ -15,6 +15,9 @@ it("rounds outward, preserves edge pixels and rejects overflow", () => {
     pixelRegion({ x: 0.25, y: 0.25, width: 0.5, height: 0.5 }, 5, 5),
   ).toEqual({ x: 1, y: 1, width: 3, height: 3 });
   expect(() =>
+    pixelRegion({ x: 1, y: 0, width: 1e-8, height: 1 }, 100, 100),
+  ).toThrow();
+  expect(() =>
     pixelRegion({ x: 0.9, y: 0, width: 0.2, height: 1 }, 20, 20),
   ).toThrow();
 });
