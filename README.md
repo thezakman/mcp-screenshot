@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="MCP Screenshot" width="200">
+</p>
+
 # MCP Screenshot
 
 **Precise window captures. Small MCP responses. Traceable local evidence.**
