@@ -517,3 +517,61 @@ it("refreshes even when the discarded description has an invalid language", asyn
   if (!("metadata" in result)) throw new Error("Missing saved evidence");
   expect(result.metadata.context.description).toBeUndefined();
 });
+
+it("expires mask suggestions, sensitivity and original retention on refresh", async () => {
+  const region = { x: 0, y: 0, width: 1, height: 1 };
+  const masks = [
+    { style: "black" as const, coverage: "full" as const, region },
+  ];
+  vi.mocked(selectRegion)
+    .mockResolvedValueOnce({
+      action: "refresh",
+      region,
+      masks,
+      sensitive: true,
+      keep_original: true,
+    })
+    .mockResolvedValueOnce({ action: "confirm", region });
+  await runSelector(
+    service,
+    {
+      window_id: WINDOW.id,
+      redact: true,
+      locale: "en",
+      mask_suggestion: {
+        masks,
+        source_sha256: (await import("../src/png.js")).pngInfo(PNG).sha256,
+      },
+    },
+    new AbortController().signal,
+  );
+  const [first, second] = vi.mocked(selectRegion).mock.calls;
+  expect(first[2]).toMatchObject({ masks, locale: "en" });
+  expect(second[2]).toMatchObject({
+    masks: [],
+    sensitive: null,
+    keep_original: false,
+    redact: true,
+  });
+});
+
+it("explains discarded stale masks even when no crop was suggested", async () => {
+  const region = { x: 0, y: 0, width: 1, height: 1 };
+  vi.mocked(selectRegion).mockResolvedValueOnce({ action: "confirm", region });
+  await runSelector(
+    service,
+    {
+      window_id: WINDOW.id,
+      mask_suggestion: {
+        masks: [{ style: "black", coverage: "full", region }],
+        source_sha256: "0".repeat(64),
+      },
+    },
+    new AbortController().signal,
+  );
+  expect(vi.mocked(selectRegion).mock.calls[0][2]).toMatchObject({
+    masks: [],
+    redact: true,
+    error: expect.stringContaining("older preview"),
+  });
+});

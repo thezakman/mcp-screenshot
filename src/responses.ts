@@ -51,6 +51,8 @@ export function presentEvidence(
         : undefined,
       display: item.display,
       crop: item.crop,
+      sensitive: item.sensitive,
+      redaction_count: item.redactions?.length,
       selection: item.selection,
       integrity: item.integrity,
       persisted: item.persisted,

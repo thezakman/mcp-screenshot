@@ -64,6 +64,9 @@ export interface EvidenceContext {
   tags?: string[];
 }
 export interface CaptureMetadata {
+  sensitive?: boolean | null;
+  redactions?: import("./redaction.js").Mask[];
+  original?: { image: "screenshot_original.png"; sha256: string };
   selection?: {
     method: "user_confirmed_frozen_preview";
     source_sha256: string;
@@ -126,6 +129,7 @@ export class EvidenceStore {
     data: Buffer,
     meta: CaptureMetadata,
     context: EvidenceContext = {},
+    original?: Buffer,
   ): Promise<Evidence & { path: string; manifest_path: string }> {
     const actual = pngInfo(data);
     if (
@@ -169,7 +173,18 @@ export class EvidenceStore {
       id,
       context,
       association: context.exchange_id ? "caller_supplied_unverified" : "none",
-      image: "screenshot.png",
+      sensitive: meta.sensitive ?? null,
+      image: meta.redactions?.length
+        ? "screenshot_redacted.png"
+        : "screenshot.png",
+      ...(original
+        ? {
+            original: {
+              image: "screenshot_original.png",
+              sha256: pngInfo(original).sha256,
+            },
+          }
+        : {}),
     };
     try {
       const validated = manifestSchema.parse(evidence);
@@ -184,6 +199,11 @@ export class EvidenceStore {
         flag: "wx",
         mode: 0o600,
       });
+      if (original && evidence.original)
+        await writeFile(join(stagedApp, evidence.original.image), original, {
+          flag: "wx",
+          mode: 0o600,
+        });
       await writeFile(join(stagedApp, "metadata.json"), manifest, {
         flag: "wx",
         mode: 0o600,
@@ -205,6 +225,11 @@ export class EvidenceStore {
       }
       if (!dir) throw new Error("CAPTURE_NAME_EXHAUSTED");
       await link(join(temp, evidence.image), join(dir, evidence.image));
+      if (evidence.original)
+        await link(
+          join(temp, evidence.original.image),
+          join(dir, evidence.original.image),
+        );
       // The manifest is the commit marker: readers ignore folders without it.
       await link(join(temp, "metadata.json"), join(dir, "metadata.json"));
     } catch (error) {
@@ -339,7 +364,7 @@ export class EvidenceStore {
     const manifestPath = await resolveManifest(directory);
     const manifestBytes = await readBounded(manifestPath, MAX_MANIFEST_BYTES);
     const evidence = parseManifest(manifestBytes, id);
-    const path = join(directory, "screenshot.png");
+    const path = join(directory, evidence.image);
     const { file, stat } = await openRegular(path, 64 * 1024 * 1024);
     let data: Buffer | undefined;
     let actual: {

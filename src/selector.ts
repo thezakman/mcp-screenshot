@@ -8,7 +8,12 @@ import {
   regionSchema,
   selectRegion,
 } from "./regions.js";
-import { saveDestination } from "./settings.js";
+import { masksSchema, type Mask } from "./redaction.js";
+import {
+  capturePreferences,
+  savePreferences,
+  saveDestination,
+} from "./settings.js";
 import { windowToken } from "./native.js";
 import { z } from "zod";
 export const selectionSuggestionSchema = z.object({
@@ -28,6 +33,7 @@ export const selectionSuggestionSchema = z.object({
 });
 const actionSchema = z.object({
   action: z.enum([
+    "preferences",
     "target",
     "refresh",
     "destination",
@@ -36,6 +42,16 @@ const actionSchema = z.object({
     "confirm",
     "capture",
   ]),
+  masks: masksSchema.optional(),
+  sensitive: z.boolean().nullable().optional(),
+  apply_masks: z.boolean().optional(),
+  keep_original: z.boolean().optional(),
+  preferences: z
+    .object({
+      language: z.enum(["auto", "en", "pt-BR"]),
+      suggest_sensitive: z.boolean(),
+    })
+    .optional(),
   name: z.string().optional(),
   draft_name: z.string().optional(),
   description_text: z.string().trim().max(2000).optional(),
@@ -50,6 +66,9 @@ async function runSelectorSession(
   service: CaptureService,
   initial: EvidenceContext & {
     reject_same_as?: string[];
+    locale?: "pt-BR" | "en";
+    redact?: boolean;
+    mask_suggestion?: { source_sha256: string; masks: Mask[] };
     request?: string;
     suggestion?: z.infer<typeof selectionSuggestionSchema>;
     case_id?: string;
@@ -64,6 +83,9 @@ async function runSelectorSession(
 ) {
   const profiles = new ProfileStore(service.profileDirectory);
   const {
+    locale,
+    redact,
+    mask_suggestion,
     request,
     suggestion,
     reject_same_as,
@@ -76,6 +98,11 @@ async function runSelectorSession(
   } = initial;
   let description = initialDescription;
   let target = { ...captureTarget };
+  let pendingMasks = mask_suggestion;
+  let masks: Mask[] = [];
+  let sensitive: boolean | null = null;
+  let keepOriginal = false;
+  let applyMasks = true;
   let pendingSuggestion = suggestion;
   let suggestionReason: string | undefined;
   let error: string | undefined;
@@ -94,8 +121,10 @@ async function runSelectorSession(
         "WINDOW_REQUIRED: choose an initial window_id or display.",
       );
     }
-    const cached = pendingSuggestion
-      ? await service.suggestedPreview(pendingSuggestion.source_sha256, target)
+    const sourceHash =
+      pendingSuggestion?.source_sha256 ?? pendingMasks?.source_sha256;
+    const cached = sourceHash
+      ? await service.suggestedPreview(sourceHash, target)
       : undefined;
     const result =
       frozen ??
@@ -114,8 +143,19 @@ async function runSelectorSession(
         error =
           "A imagem mudou desde a sugestão. Selecione a região na prévia atual; o recorte antigo não foi aplicado.";
         draftName = "";
+        description = undefined;
       }
       pendingSuggestion = undefined;
+    }
+    if (pendingMasks) {
+      if (pendingMasks.source_sha256 === result.metadata.sha256)
+        masks = pendingMasks.masks;
+      else {
+        error =
+          "The suggested masks belong to an older preview. Review the crop and mark the sensitive areas again.";
+        description = undefined;
+      }
+      pendingMasks = undefined;
     }
     const w = result.metadata.window;
     // Once inspected, keep refreshes bound to this OS window rather than resolving an app again.
@@ -129,6 +169,13 @@ async function runSelectorSession(
         p.height === w.bounds.height,
     );
     const context = {
+      locale,
+      preferences: capturePreferences(),
+      redact: !!redact || !!mask_suggestion,
+      masks,
+      apply_masks: applyMasks,
+      sensitive,
+      keep_original: keepOriginal,
       request,
       captured_at: result.metadata.captured_at,
       description,
@@ -161,6 +208,10 @@ async function runSelectorSession(
     );
     signal.throwIfAborted();
     error = undefined;
+    masks = action.masks ?? masks;
+    if (action.sensitive !== undefined) sensitive = action.sensitive;
+    keepOriginal = action.keep_original ?? keepOriginal;
+    applyMasks = action.apply_masks ?? applyMasks;
     if (action.case_id !== undefined) project = action.case_id.trim();
     if (action.region) draft = action.region;
     if (action.draft_name !== undefined) draftName = action.draft_name;
@@ -189,7 +240,16 @@ async function runSelectorSession(
             })
           : undefined;
       }
-      if (action.action === "refresh") {
+      if (action.action === "refresh" || action.action === "target") {
+        masks = [];
+        applyMasks = true;
+        sensitive = null;
+        keepOriginal = false;
+      }
+      if (action.action === "preferences") {
+        if (!action.preferences) throw new Error("Missing preferences");
+        await savePreferences(action.preferences);
+      } else if (action.action === "refresh") {
         description = undefined;
         frozen = undefined;
         draft = undefined;
@@ -274,6 +334,7 @@ async function runSelectorSession(
             },
             reject_same_as,
             signal,
+            { masks: applyMasks ? masks : [], sensitive, keepOriginal },
           );
           if (pendingProfile) {
             try {

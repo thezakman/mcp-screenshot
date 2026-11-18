@@ -1,3 +1,4 @@
+import { appliedMasks, renderMasks, type Mask } from "./redaction.js";
 import { profilesRoot } from "./settings.js";
 import { cropImage, ProfileStore, type Region } from "./regions.js";
 import { execFile } from "node:child_process";
@@ -158,15 +159,36 @@ export class CaptureService {
     context: EvidenceContext,
     rejectSameAs: string[] = [],
     signal?: AbortSignal,
+    privacy?: {
+      masks: Mask[];
+      sensitive: boolean | null;
+      keepOriginal: boolean;
+    },
   ) {
     const confirmedAt = new Date().toISOString();
     return this.queue.run(async () => {
       const source = Buffer.from(preview.image, "base64");
       if (pngInfo(source).sha256 !== preview.metadata.sha256)
         throw new Error("Preview integrity check failed.");
-      const data = await cropImage(source, region);
+      const masks = privacy?.masks ?? [];
+      const applied = appliedMasks(
+        masks,
+        region,
+        preview.metadata.width,
+        preview.metadata.height,
+      );
+      const original =
+        applied.length && privacy?.keepOriginal
+          ? await cropImage(source, region)
+          : undefined;
+      const data = await cropImage(
+        applied.length ? await renderMasks(source, masks, signal) : source,
+        region,
+      );
       const metadata: CaptureMetadata = {
         ...preview.metadata,
+        sensitive: applied.length ? true : (privacy?.sensitive ?? null),
+        ...(applied.length ? { redactions: applied } : {}),
         ...pngInfo(data),
         selection: {
           method: "user_confirmed_frozen_preview",
@@ -184,7 +206,7 @@ export class CaptureService {
       signal?.throwIfAborted();
       return {
         metadata: {
-          ...(await this.store.save(data, metadata, context)),
+          ...(await this.store.save(data, metadata, context, original)),
           persisted: true,
           image_included: false,
         },

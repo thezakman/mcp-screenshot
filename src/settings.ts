@@ -55,3 +55,37 @@ export async function saveDestination(destination: string) {
 export function profilesRoot() {
   return process.env.MCP_SCREENSHOT_DIR ?? SETTINGS_HOME;
 }
+
+export interface CapturePreferences {
+  language: "auto" | "pt-BR" | "en";
+  suggest_sensitive: boolean;
+}
+const preferencesPath = join(SETTINGS_HOME, "preferences.json");
+export function capturePreferences(): CapturePreferences {
+  try {
+    const value = JSON.parse(readFileSync(preferencesPath, "utf8"));
+    if (
+      !["auto", "en", "pt-BR"].includes(value.language) ||
+      typeof value.suggest_sensitive !== "boolean"
+    )
+      throw new Error("Invalid preferences");
+    return {
+      language: value.language,
+      suggest_sensitive: value.suggest_sensitive,
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return { language: "auto", suggest_sensitive: false };
+  }
+}
+export async function savePreferences(value: CapturePreferences) {
+  await mkdir(SETTINGS_HOME, { recursive: true, mode: 0o700 });
+  const dir = await mkdtemp(join(SETTINGS_HOME, ".preferences-"));
+  try {
+    const file = join(dir, "prefs");
+    await writeFile(file, JSON.stringify(value), { mode: 0o600 });
+    await rename(file, preferencesPath);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}

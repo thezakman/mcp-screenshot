@@ -36,6 +36,7 @@ export async function exportEvidence(
   ids: string[],
   title = "Evidence review",
   signal?: AbortSignal,
+  includeOriginal = false,
 ) {
   return exportQueue.run(async () => {
     if (!ids.length || ids.length > 50 || new Set(ids).size !== ids.length)
@@ -89,13 +90,33 @@ export async function exportEvidence(
             "EXPORT_FAILED",
             "Verified source PNG was not available.",
           );
-        const manifest = await readBounded(manifest_path, 64 * 1024);
+        let manifest = await readBounded(manifest_path, 64 * 1024);
         if (digest(manifest) !== item.manifest_sha256)
           throw new ScreenshotError(
             "FILE_CHANGED",
             "Manifest changed while exporting.",
           );
-        await write(`evidence/${id}/screenshot.png`, data);
+        if (item.original) {
+          if (includeOriginal) {
+            const original = await readBounded(
+              join(dirname(path), item.original.image),
+              64 * 1024 * 1024,
+            );
+            if (digest(original) !== item.original.sha256)
+              throw new ScreenshotError(
+                "INTEGRITY_MISMATCH",
+                "Original checksum mismatch.",
+              );
+            await write(`evidence/${id}/${item.original.image}`, original);
+          } else {
+            const exported = JSON.parse(manifest.toString("utf8"));
+            delete exported.original;
+            delete item.original;
+            manifest = Buffer.from(JSON.stringify(exported, null, 2) + "\n");
+            item.manifest_sha256 = digest(manifest);
+          }
+        }
+        await write(`evidence/${id}/${item.image}`, data);
         await write(`evidence/${id}/metadata.json`, manifest);
         for (const review of item.review_history ?? []) {
           const event = await readBounded(
@@ -187,7 +208,7 @@ function renderHtml(
         ["Dimensions", `${item.width} × ${item.height}`],
         ["SHA-256", item.sha256],
       ];
-      return `<article id="e-${index + 1}"><header><span class="number">${String(index + 1).padStart(2, "0")}</span><h2>${escapeHtml(label)}</h2><span class="badge ${item.review.status}">${escapeHtml(item.review.status.replaceAll("_", " "))}</span></header><a class="image" href="${prefix}/screenshot.png"><img loading="lazy" src="${prefix}/screenshot.png" alt="${escapeHtml(label)}" width="${item.width}" height="${item.height}"></a><div class="body"><dl>${details
+      return `<article id="e-${index + 1}"><header><span class="number">${String(index + 1).padStart(2, "0")}</span><h2>${escapeHtml(label)}</h2><span class="badge ${item.review.status}">${escapeHtml(item.review.status.replaceAll("_", " "))}</span></header><a class="image" href="${prefix}/${item.image}"><img loading="lazy" src="${prefix}/${item.image}" alt="${escapeHtml(label)}" width="${item.width}" height="${item.height}"></a><div class="body"><dl>${details
         .filter(([, v]) => v)
         .map(
           ([k, v]) =>
@@ -195,7 +216,7 @@ function renderHtml(
         )
         .join(
           "",
-        )}</dl>${item.context.description ? `<h3>Image description</h3><p class="note" lang="${escapeHtml(item.context.description.language)}">${escapeHtml(item.context.description.text)}</p><p class="muted">${escapeHtml(item.context.description.language)} · ${escapeHtml(item.context.description.source)} (caller-supplied)</p>` : ""}${item.context.note ? `<h3>Capture note</h3><p class="note">${escapeHtml(item.context.note)}</p>` : ""}${item.context.tags?.length ? `<p class="muted">Tags: ${item.context.tags.map(escapeHtml).join(" · ")}</p>` : ""}${item.review.latest ? `<section class="review"><h3>Review · revision ${item.review.revision}</h3><p class="note">${escapeHtml(item.review.latest.note)}</p><p class="muted">${escapeHtml(item.review.latest.reviewer)} (caller-supplied) · ${escapeHtml(item.review.latest.reviewed_at)}</p></section>` : '<p class="muted">Awaiting review.</p>'}${item.warnings.map((w) => `<p class="warning">${escapeHtml(w)}</p>`).join("")}<footer><a href="${prefix}/screenshot.png">Original PNG</a><a href="${prefix}/metadata.json">Capture metadata</a><span>${escapeHtml(item.id)}</span></footer></div></article>`;
+        )}</dl>${item.context.description ? `<h3>Image description</h3><p class="note" lang="${escapeHtml(item.context.description.language)}">${escapeHtml(item.context.description.text)}</p><p class="muted">${escapeHtml(item.context.description.language)} · ${escapeHtml(item.context.description.source)} (caller-supplied)</p>` : ""}${item.context.note ? `<h3>Capture note</h3><p class="note">${escapeHtml(item.context.note)}</p>` : ""}${item.context.tags?.length ? `<p class="muted">Tags: ${item.context.tags.map(escapeHtml).join(" · ")}</p>` : ""}${item.review.latest ? `<section class="review"><h3>Review · revision ${item.review.revision}</h3><p class="note">${escapeHtml(item.review.latest.note)}</p><p class="muted">${escapeHtml(item.review.latest.reviewer)} (caller-supplied) · ${escapeHtml(item.review.latest.reviewed_at)}</p></section>` : '<p class="muted">Awaiting review.</p>'}${item.warnings.map((w) => `<p class="warning">${escapeHtml(w)}</p>`).join("")}<footer><a href="${prefix}/${item.image}">${item.redactions?.length ? "Redacted PNG" : "Original PNG"}</a><a href="${prefix}/metadata.json">Capture metadata</a><span>${escapeHtml(item.id)}</span></footer></div></article>`;
     })
     .join("");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${escapeHtml(title)}</title><style>
@@ -212,7 +233,7 @@ function renderMarkdown(
     records
       .map(
         (item, i) =>
-          `## ${i + 1}. ${markdown(item.context.label || item.id)}\n\n- Status: ${item.review.status}\n- Captured: ${item.captured_at}\n${item.selection ? `- Confirmed: ${item.selection.confirmed_at}\n- Source preview SHA-256: \`${item.selection.source_sha256}\`\n` : ""}- Case: ${markdown(item.context.case_id || "—")}\n- Exchange (caller-supplied): ${markdown(item.context.exchange_id || "—")}\n- SHA-256: \`${item.sha256}\`\n\n![Evidence ${i + 1}](evidence/${item.id}/screenshot.png)\n\n${item.context.description ? `Image description (${markdown(item.context.description.language)}): ${markdown(item.context.description.text)}\n\n` : ""}${markdown(item.context.note || "")}\n\n${item.review.latest ? `Review by ${markdown(item.review.latest.reviewer)} (caller-supplied): ${markdown(item.review.latest.note)}\n\n` : ""}[Original metadata](evidence/${item.id}/metadata.json)\n\n`,
+          `## ${i + 1}. ${markdown(item.context.label || item.id)}\n\n- Status: ${item.review.status}\n- Captured: ${item.captured_at}\n${item.selection ? `- Confirmed: ${item.selection.confirmed_at}\n- Source preview SHA-256: \`${item.selection.source_sha256}\`\n` : ""}- Case: ${markdown(item.context.case_id || "—")}\n- Exchange (caller-supplied): ${markdown(item.context.exchange_id || "—")}\n- SHA-256: \`${item.sha256}\`\n\n![Evidence ${i + 1}](evidence/${item.id}/${item.image})\n\n${item.context.description ? `Image description (${markdown(item.context.description.language)}): ${markdown(item.context.description.text)}\n\n` : ""}${markdown(item.context.note || "")}\n\n${item.review.latest ? `Review by ${markdown(item.review.latest.reviewer)} (caller-supplied): ${markdown(item.review.latest.note)}\n\n` : ""}[Original metadata](evidence/${item.id}/metadata.json)\n\n`,
       )
       .join("")
   );

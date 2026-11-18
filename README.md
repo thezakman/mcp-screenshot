@@ -476,3 +476,28 @@ Capture tools and the selector accept `description: {text, language, source}`. T
 ```
 
 The optional field is stored at `context.description` inside `metadata.json`, alongside the saved PNG's hash. Existing files are not renamed and no existing evidence is rewritten. The selector lets users edit or clear the text and choose its language; edits are attributed to `user`. Refreshing the preview or changing the target clears the description to prevent reuse with different content. Check the text against the final crop. The server does not run a vision model, OCR or translation; it preserves supplied descriptions. Descriptions are searchable and included in summary metadata and HTML/Markdown exports. Source attribution is caller-supplied. No `caption.txt` is created.
+
+### Redaction and interface language
+
+Enable **Edit masks / Editar máscaras** and drag to mark an area. Drag a mask
+to move it, drag its handles to resize it, or select it and press Delete to
+remove it. Use the blue handles to resize the crop and Option-drag to move it
+while editing masks.
+
+Choose black, blur, or pixelate. Coverage defaults to the full width (100%).
+The 80%, 50%, and 25% options cover the horizontal center and preserve the
+full height. Use a full black block for secrets. Refreshing the preview or
+switching windows clears masks and privacy choices for the previous image.
+
+Under **Settings and profiles → Language and privacy**, choose automatic,
+Portuguese or English and optionally enable suggested sensitive areas. Clients
+read this preference from `get_capture_status` before inspecting a preview.
+Pass the conversation's `locale` to the selector. In automatic mode the system
+language is the fallback. The description has its own language field.
+
+The primary file is named by `metadata.json.image`. Masked captures use
+`screenshot_redacted.png`. Retaining `screenshot_original.png` is opt-in per
+capture. Exports include that copy only with explicit `include_original: true`.
+`sensitive` classifies the source crop: true, explicitly reviewed false, or
+null (also the default when reading legacy captures). Applied redaction boxes
+describe covered pixels relative to the saved crop. Suggestions are temporary.

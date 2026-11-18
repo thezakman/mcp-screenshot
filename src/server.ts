@@ -1,5 +1,7 @@
 import { captureGuide, captureInstructions } from "./workflow.js";
 import { descriptionSchema } from "./manifest.js";
+import { capturePreferences } from "./settings.js";
+import { masksSchema } from "./redaction.js";
 import { runSelector, selectionSuggestionSchema } from "./selector.js";
 import {
   ProfileStore,
@@ -148,7 +150,13 @@ export function createServer(service = new CaptureService(), version = "dev") {
       annotations: readAnnotations,
     },
     () =>
-      guarded(async () => textResult({ version, ...(await service.status()) })),
+      guarded(async () =>
+        textResult({
+          version,
+          preferences: capturePreferences(),
+          ...(await service.status()),
+        }),
+      ),
   );
   server.registerTool(
     "list_windows",
@@ -348,9 +356,15 @@ export function createServer(service = new CaptureService(), version = "dev") {
     "export_evidence",
     {
       description:
-        "Build an offline HTML/Markdown review package from 1–50 existing evidence IDs. Verify originals and copy them losslessly; never recapture or upload. Returns local paths only.",
+        "Build an offline HTML/Markdown review package from 1–50 existing evidence IDs. Verify primary PNGs and copy them losslessly; never recapture or upload. Returns local paths only.",
       inputSchema: {
         ids: z.array(z.string().max(100)).min(1).max(50),
+        include_original: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Export saved unredacted originals only on explicit request.",
+          ),
         title: z.string().trim().min(1).max(200).default("Evidence review"),
       },
       annotations: captureAnnotations,
@@ -363,6 +377,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
             args.ids,
             args.title,
             extra.signal,
+            args.include_original,
           ),
         ),
       ),
@@ -419,6 +434,22 @@ export function createServer(service = new CaptureService(), version = "dev") {
             "User's intended content, displayed in the confirmation dialog.",
           ),
         suggestion: selectionSuggestionSchema.optional(),
+        locale: z.enum(["pt-BR", "en"]).optional(),
+        redact: z
+          .boolean()
+          .optional()
+          .describe(
+            "User requested redaction. Open editor even if no areas were found.",
+          ),
+        mask_suggestion: z
+          .object({
+            source_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+            masks: masksSchema,
+          })
+          .optional()
+          .describe(
+            "Normalized top-left boxes in inspected full preview. Never include the sensitive values.",
+          ),
         reject_same_as: evidenceFields.reject_same_as,
         label: evidenceFields.label,
         note: evidenceFields.note,

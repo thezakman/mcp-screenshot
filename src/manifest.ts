@@ -1,3 +1,4 @@
+import { masksSchema } from "./redaction.js";
 import { regionSchema, pixelRegion } from "./regions.js";
 import { z } from "zod";
 import { ScreenshotError } from "./errors.js";
@@ -70,10 +71,28 @@ export const manifestSchema = z
       .optional(),
     display: z.number().int().positive().optional(),
     association: z.enum(["caller_supplied_unverified", "none"]),
-    image: z.literal("screenshot.png"),
+    image: z.enum(["screenshot.png", "screenshot_redacted.png"]),
+    sensitive: z.boolean().nullable().default(null),
+    redactions: masksSchema.optional(),
+    original: z
+      .object({
+        image: z.literal("screenshot_original.png"),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .optional(),
     warnings: z.array(z.string().max(8192)).max(32),
   })
   .superRefine((value, ctx) => {
+    const masked = !!value.redactions?.length;
+    if (
+      masked !== (value.image === "screenshot_redacted.png") ||
+      (masked && value.sensitive !== true) ||
+      (value.original && !masked)
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Inconsistent redaction metadata",
+      });
     if (
       (value.mode === "window" &&
         (!value.window ||
