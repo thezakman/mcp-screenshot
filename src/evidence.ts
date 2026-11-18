@@ -61,9 +61,11 @@ export interface EvidenceContext {
   label?: string;
   note?: string;
   exchange_id?: string;
+  source_item_id?: string;
   tags?: string[];
 }
 export interface CaptureMetadata {
+  pre_exif_sha256?: string;
   sensitive?: boolean | null;
   redactions?: import("./redaction.js").Mask[];
   original?: { image: "screenshot_original.png"; sha256: string };
@@ -471,6 +473,7 @@ export class EvidenceStore {
         "unreviewed" | "accepted" | "needs_recapture" | "rejected";
       case_id?: string;
       exchange_id?: string;
+      source_item_id?: string;
       query?: string;
       after?: string;
       limit?: number;
@@ -503,6 +506,7 @@ export class EvidenceStore {
       label?: string;
       case_id?: string;
       exchange_id?: string;
+      source_item_id?: string;
       width: number;
       height: number;
       review_status: string;
@@ -527,6 +531,11 @@ export class EvidenceStore {
           await readBounded(await resolveManifest(dir), MAX_MANIFEST_BYTES),
           id,
         );
+        if (
+          options.source_item_id &&
+          item.context.source_item_id !== options.source_item_id
+        )
+          continue;
         if (options.case_id && item.context?.case_id !== options.case_id)
           continue;
         if (
@@ -558,6 +567,7 @@ export class EvidenceStore {
           label: item.context?.label,
           case_id: item.context?.case_id,
           exchange_id: item.context?.exchange_id,
+          source_item_id: item.context?.source_item_id,
           width: item.width,
           height: item.height,
         });

@@ -19,6 +19,7 @@ export const contextSchema = z.object({
   case_id: z.string().max(120).optional(),
   label: z.string().max(200).optional(),
   note: z.string().max(4000).optional(),
+  source_item_id: z.string().trim().min(1).max(200).optional(),
   exchange_id: z.string().max(200).optional(),
   tags: z.array(z.string().max(80)).max(16).optional(),
 });
@@ -44,6 +45,10 @@ export const manifestSchema = z
         source_height: z.number().int().positive(),
         profile: z.string().optional(),
       })
+      .optional(),
+    pre_exif_sha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
       .optional(),
     schema_version: z.literal(1),
     id: evidenceId,

@@ -293,6 +293,10 @@ do {
         let descriptionHeader=NSStackView(views:[heading,NSView(),languageHeading,language])
         descriptionHeader.spacing=6
         add(descriptionHeader); stack.setCustomSpacing(4,after:descriptionHeader); add(description)
+        let embedDescription = NSButton(checkboxWithTitle:L("Incluir descrição no PNG (EXIF)", "Embed description in PNG (EXIF)"), target:nil, action:nil)
+        embedDescription.state = config["embed_description"] as? Bool == true ? .on : .off
+        region.embedDescriptionToggle = embedDescription
+        add(embedDescription)
         let project=NSTextField()
         project.placeholderString=L("Automático · data + UUID","Automatic · date + UUID"); project.stringValue=config["case_id"] as? String ?? ""
         project.heightAnchor.constraint(equalToConstant:28).isActive=true; region.projectField=project
@@ -517,7 +521,7 @@ final class RegionView: NSView, NSWindowDelegate {
       alert.addButton(withTitle: L("Remover descrição", "Remove description"))
       let answer = alert.runModal()
       if answer == .alertFirstButtonReturn { window?.makeFirstResponder(field); return false }
-      if answer == .alertThirdButtonReturn { field.stringValue = "" }
+      if answer == .alertThirdButtonReturn { field.stringValue = ""; embedDescriptionToggle?.state = .off }
     }
     return !renderFailed
   }
@@ -551,6 +555,7 @@ final class RegionView: NSView, NSWindowDelegate {
   var configuration: [String: Any] = [:]
   weak var nameField: NSTextField?
   weak var projectField: NSTextField?
+  weak var embedDescriptionToggle: NSButton?
   weak var descriptionField: NSTextField?
     weak var descriptionLanguageField: NSTextField?
     var start = NSPoint.zero
@@ -695,6 +700,7 @@ final class RegionView: NSView, NSWindowDelegate {
         response["keep_original"]=originalToggle?.state == .on
         response["draft_name"] = nameField?.stringValue ?? ""
         response["case_id"] = projectField?.stringValue ?? ""
+        response["embed_description"] = embedDescriptionToggle?.state == .on
         response["description_text"] = descriptionField?.stringValue ?? ""
         response["description_language"] = descriptionLanguageField?.stringValue ?? "pt-BR"
         if valid && response["region"] == nil {response["region"]=selectedRegion()}

@@ -1,3 +1,4 @@
+import { execFileSync, spawnSync } from "node:child_process";
 import { ProfileStore } from "../src/regions.js";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -319,3 +320,60 @@ it("preserves the caller's description language and makes its content searchable
     ).toContain(saved.id);
   }
 });
+
+it("preserves the connector item ID across capture, retrieval and filtered listing", async () => {
+  const first = await service.capture({
+    window_id: WINDOW.id,
+    case_id: "batch",
+    source_item_id: "repeater:20",
+  });
+  await service.capture({
+    window_id: WINDOW.id,
+    case_id: "batch",
+    source_item_id: "repeater:21",
+  });
+  const id = (first.metadata as { id: string }).id;
+  expect((await service.store.get(id)).context.source_item_id).toBe(
+    "repeater:20",
+  );
+  expect(
+    (
+      await service.store.list({
+        case_id: "batch",
+        source_item_id: "repeater:20",
+      })
+    ).items,
+  ).toEqual([expect.objectContaining({ id, source_item_id: "repeater:20" })]);
+});
+
+it.skipIf(spawnSync("exiftool", ["-ver"]).status !== 0)(
+  "embeds the approved description in the primary PNG and preserves duplicate detection",
+  async () => {
+    const description = {
+      text: "Painéis de requisição e resposta – sessão de revisão.",
+      language: "pt-BR",
+      source: "user" as const,
+    };
+    const options = { window_id: WINDOW.id, description, include_image: true };
+    const plain = await service.capture(options);
+    expect(Buffer.from(plain.image!, "base64")).toEqual(PNG);
+    const tagged = await service.capture({
+      ...options,
+      embed_description: true,
+    });
+    const stored = await service.store.get(
+      (tagged.metadata as { id: string }).id,
+      true,
+    );
+    expect(Buffer.from(tagged.image!, "base64")).toEqual(stored.data);
+    expect(stored.integrity).toBe("verified");
+    expect(
+      execFileSync("exiftool", ["-s3", "-EXIF:UserComment", stored.path], {
+        encoding: "utf8",
+      }).trimEnd(),
+    ).toBe(description.text);
+    await expect(
+      service.capture({ ...options, reject_same_as: [stored.id] }),
+    ).rejects.toThrow("matches previous evidence");
+  },
+);

@@ -1,3 +1,4 @@
+import { embedDescription } from "./exif.js";
 import { appliedMasks, renderMasks, type Mask } from "./redaction.js";
 import { profilesRoot } from "./settings.js";
 import {
@@ -34,6 +35,7 @@ import { ScreenshotError } from "./errors.js";
 const exec = promisify(execFile);
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export interface CaptureOptions extends EvidenceContext {
+  embed_description?: boolean;
   reject_same_as?: string[];
   region?: Region;
   profile?: string;
@@ -169,6 +171,7 @@ export class CaptureService {
       sensitive: boolean | null;
       keepOriginal: boolean;
     },
+    embed = false,
   ) {
     const confirmedAt = new Date().toISOString();
     return this.queue.run(async () => {
@@ -186,7 +189,7 @@ export class CaptureService {
         applied.length && privacy?.keepOriginal
           ? await cropImage(source, region)
           : undefined;
-      const data = await cropImage(
+      let data = await cropImage(
         applied.length ? await renderMasks(source, masks, signal) : source,
         region,
       );
@@ -208,6 +211,16 @@ export class CaptureService {
         warnings: [...preview.metadata.warnings],
       };
       await this.rejectDuplicates(metadata.sha256, rejectSameAs);
+      if (embed) {
+        const tagged = await embedDescription(
+          data,
+          metadata.sha256,
+          context.description?.text,
+          signal,
+        );
+        data = tagged.data;
+        Object.assign(metadata, tagged.metadata);
+      }
       signal?.throwIfAborted();
       return {
         metadata: {
@@ -220,7 +233,8 @@ export class CaptureService {
   }
   private async rejectDuplicates(hash: string, ids: string[]) {
     for (const id of ids) {
-      if ((await this.store.get(id)).sha256 === hash)
+      const prior = await this.store.get(id);
+      if ((prior.pre_exif_sha256 ?? prior.sha256) === hash)
         throw new ScreenshotError(
           "DUPLICATE_CAPTURE",
           "Image matches previous evidence " +
@@ -235,6 +249,11 @@ export class CaptureService {
     local: boolean,
   ) {
     return this.queue.run(async () => {
+      if (options.embed_description && options.persist === false)
+        throw new ScreenshotError(
+          "INVALID_OPTIONS",
+          "EXIF embedding requires a saved capture.",
+        );
       if (options.persist === false && !options.include_image)
         throw new ScreenshotError(
           "NO_OUTPUT",
@@ -403,6 +422,16 @@ export class CaptureService {
         warnings,
       };
       await this.rejectDuplicates(meta.sha256, options.reject_same_as ?? []);
+      if (options.embed_description) {
+        const tagged = await embedDescription(
+          data,
+          meta.sha256,
+          options.description?.text,
+          signal,
+        );
+        data = tagged.data;
+        Object.assign(meta, tagged.metadata);
+      }
       signal?.throwIfAborted();
       const context: EvidenceContext = Object.fromEntries(
         Object.entries({
@@ -411,6 +440,7 @@ export class CaptureService {
           note: options.note,
           description: options.description,
           exchange_id: options.exchange_id,
+          source_item_id: options.source_item_id,
           tags: options.tags,
         }).filter(([, v]) => v !== undefined),
       );

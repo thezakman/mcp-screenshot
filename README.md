@@ -184,7 +184,21 @@ An MCP client can call these tools at selected workflow milestones, then attach 
 
 The capture checks that the selected window's identity, title, and bounds settle before capture and remain unchanged afterward. It **does not prove that page content has finished loading** or that a particular Burp exchange is on screen. Select and confirm the content before capture.
 
+For batches, keep one `case_id`, set a readable `label` per item, and pass
+`source_item_id` when the connector supplies an identifier. Qualify IDs that
+are local to a collection (for example, `repeater:20`). Use `list_evidence`
+with `case_id` and `source_item_id` to find the matching captures. This
+caller-supplied reference is independent of the HTTP `exchange_id`. Refreshing
+the selector preview or switching targets clears the source item reference.
+
 ## Precise selection and economical responses
+
+Capture and retrieval summaries derive `framing` from the recorded capture:
+`full_window`, `full_display`, `explicit_region`, `fixed_profile` (name in
+`crop.profile`), or `confirmed_selection`. The raw manifest retains the
+original title, context and geometry. To deliver the primary image alone, use
+the PNG named in `metadata.json.image`. Evidence package exports also contain
+the raw capture metadata.
 
 `list_windows` returns a `selection_token` describing the current window identity, title, and bounds. Pass it back as `expected_window_token` when capturing. If the window changes between selection and capture, the server returns `STALE_WINDOW` instead of silently accepting the new state. This token checks window metadata; it does not authenticate the application or verify the visible page content.
 
@@ -473,6 +487,8 @@ New confirmed captures include `selection.method`, `selection.source_sha256` (th
 HTML and Markdown exports now show both the original capture time and optional confirmation time, together with the source-preview hash. Older captures without confirmation metadata remain supported.
 
 ### Optional visual description
+
+To carry the description with the primary PNG, select **Embed description in PNG (EXIF)** or pass `embed_description: true` with a description when saving. Embedding is off by default and requires `exiftool` on the MCP server's PATH (on macOS, `brew install exiftool`). The text travels with the image, including a redacted PNG. Only the final description is embedded. An optional original copy keeps its original metadata. Read the embedded text with `exiftool -s3 -EXIF:UserComment screenshot.png`.
 
 Capture tools and the selector accept `description: {text, language, source}`. This describes the visible image content, not the reason it was captured. The AI client must inspect the intended crop and use the conversation language, unless another language is requested. For example:
 

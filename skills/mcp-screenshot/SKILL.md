@@ -18,10 +18,12 @@ Consulte `get_capture_guide` e `get_capture_status` do servidor conectado. Confi
 
 Quando o MCP do Burp estiver disponível, localize as abas com `list_repeater_tabs` e ative cada uma com `select_repeater_tab(tabId, expectedTitle)`. Para o Organizer, use `select_organizer_item` na coleção pedida. O MCP do Burp é opcional. A interface do aplicativo também permite navegar até o conteúdo existente, sem reenviar requisições.
 
-Use o mesmo `case_id` no lote. Para cada item, alterne a aba, confirme visualmente a identidade na prévia completa e só então capture. Em recortes dinâmicos, recalcule a área útil. Passe IDs anteriores em `reject_same_as`, respeitando o limite anunciado. Se o resultado repetir a imagem ou cortar conteúdo solicitado, identifique a captura afetada e corrija o enquadramento antes de prosseguir.
+Use o mesmo `case_id` no lote e um `label` legível por item, como “Repeater · DADOS-SENSIVEIS”. Se o conector fornecer um identificador, envie-o em `source_item_id` quando a ferramenta aceitar o campo. Preserve a coleção de origem no identificador se o ID só for único dentro dela. Para cada item, alterne a aba, confirme visualmente a identidade na prévia completa e só então capture. Em recortes dinâmicos, recalcule a área útil. Passe IDs anteriores em `reject_same_as`, respeitando o limite anunciado. Se o resultado repetir a imagem ou cortar conteúdo solicitado, identifique a captura afetada e corrija o enquadramento antes de prosseguir.
 
 ## Entrega
 
 **Capturar e salvar** grava a prévia congelada aprovada. **Atualizar prévia** exige nova inspeção do conteúdo. **Salvar apenas a seleção** retorna geometria e pode salvar um perfil. Após cancelamento ou timeout, confira o resultado e as evidências antes de repetir.
 
 Quando o seletor retornar `metadata.persisted=true`, reutilize o ID retornado para evitar uma segunda captura. Confirme a persistência, recupere o PNG com `get_evidence(id, include_image=true)` e confira o conteúdo final. Se o limite de tamanho impedir a visualização inline, confira o arquivo local indicado nos metadados. Entregue o caminho retornado pelo servidor e indique itens pendentes em lotes parciais. Em capturas censuradas, vincule o PNG principal indicado nos metadados. Inclua o original em exportações apenas quando solicitado. Se houver descrição, descreva o que aparece no recorte, no idioma do usuário, sem transcrever valores sensíveis.
+
+Quando o usuário quiser levar a descrição junto no próprio PNG, use `embed_description=true` com a descrição final se o servidor anunciar esse parâmetro. O texto também acompanhará o PNG censurado.

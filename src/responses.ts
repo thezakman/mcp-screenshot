@@ -44,12 +44,22 @@ export function presentEvidence(
       label: item.context?.label,
       description: item.context?.description,
       exchange_id: item.context?.exchange_id,
+      source_item_id: item.context?.source_item_id,
       association: item.association,
       verification: item.verification,
       window: item.window
         ? { id: item.window.id, app: item.window.app, title: item.window.title }
         : undefined,
       display: item.display,
+      framing: item.selection
+        ? "confirmed_selection"
+        : item.crop?.profile
+          ? "fixed_profile"
+          : item.crop
+            ? "explicit_region"
+            : item.mode === "display"
+              ? "full_display"
+              : "full_window",
       crop: item.crop,
       image: item.image,
       original_retained: item.id ? Boolean(item.original) : undefined,

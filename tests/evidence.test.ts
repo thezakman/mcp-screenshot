@@ -42,9 +42,9 @@ describe("evidence persistence", () => {
     expect(got.data).toEqual(PNG);
     expect(got.integrity).toBe("verified");
     expect(got.association).toBe("caller_supplied_unverified");
-    expect(
-      JSON.parse(await readFile(saved.manifest_path, "utf8")).context.case_id,
-    ).toBe("local");
+    const manifest = JSON.parse(await readFile(saved.manifest_path, "utf8"));
+    expect(manifest.context.case_id).toBe("local");
+    expect(manifest.sensitive).toBeNull();
     expect((await readdir(root)).some((n) => n.startsWith(".pending"))).toBe(
       false,
     );

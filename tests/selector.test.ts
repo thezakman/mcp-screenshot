@@ -412,6 +412,7 @@ it("persists caller context through interactive confirmation", async () => {
       label: "Response",
       note: "Visible response only",
       exchange_id: "exchange-42",
+      source_item_id: "organizer:42",
       tags: ["repeater"],
     },
     new AbortController().signal,
@@ -423,6 +424,7 @@ it("persists caller context through interactive confirmation", async () => {
     label: "Response",
     note: "Visible response only",
     exchange_id: "exchange-42",
+    source_item_id: "organizer:42",
     tags: ["repeater"],
   });
   expect(saved.association).toBe("caller_supplied_unverified");

@@ -55,6 +55,7 @@ const actionSchema = z.object({
     .optional(),
   name: z.string().optional(),
   draft_name: z.string().optional(),
+  embed_description: z.boolean().optional(),
   description_text: z.string().trim().max(2000).optional(),
   description_language: z.string().optional(),
   case_id: z.string().max(120).optional(),
@@ -67,6 +68,7 @@ async function runSelectorSession(
   service: CaptureService,
   initial: EvidenceContext & {
     reject_same_as?: string[];
+    embed_description?: boolean;
     locale?: "pt-BR" | "en";
     redact?: boolean;
     mask_suggestion?: { source_sha256: string; masks: Mask[] };
@@ -93,10 +95,14 @@ async function runSelectorSession(
     label,
     note,
     description: initialDescription,
+    embed_description: initialEmbed,
     exchange_id,
+    source_item_id: initialSourceItemId,
     tags,
     ...captureTarget
   } = initial;
+  let sourceItemId = initialSourceItemId;
+  let embed = initialEmbed ?? false;
   let description = initialDescription;
   let target = { ...captureTarget };
   let pendingMasks = mask_suggestion;
@@ -187,6 +193,7 @@ async function runSelectorSession(
       request,
       captured_at: result.metadata.captured_at,
       description,
+      embed_description: embed,
       suggestion_reason: suggestionReason,
       destination: service.store.root,
       profiles_directory: profiles.root + "/profiles",
@@ -216,6 +223,7 @@ async function runSelectorSession(
     );
     signal.throwIfAborted();
     error = undefined;
+    embed = action.embed_description ?? embed;
     masks = action.masks ?? masks;
     if (action.sensitive !== undefined) sensitive = action.sensitive;
     keepOriginal = action.keep_original ?? keepOriginal;
@@ -249,6 +257,8 @@ async function runSelectorSession(
           : undefined;
       }
       if (action.action === "refresh" || action.action === "target") {
+        embed = false;
+        sourceItemId = undefined;
         masks = [];
         applyMasks = true;
         sensitive = null;
@@ -342,11 +352,13 @@ async function runSelectorSession(
               note,
               description,
               exchange_id,
+              source_item_id: sourceItemId,
               tags,
             },
             reject_same_as,
             signal,
             { masks: applyMasks ? masks : [], sensitive, keepOriginal },
+            embed,
           );
           if (pendingProfile) {
             try {

@@ -1,5 +1,5 @@
 import { captureGuide, captureInstructions } from "./workflow.js";
-import { descriptionSchema } from "./manifest.js";
+import { contextSchema, descriptionSchema } from "./manifest.js";
 import { capturePreferences } from "./settings.js";
 import { masksSchema } from "./redaction.js";
 import { runSelector, selectionSuggestionSchema } from "./selector.js";
@@ -49,8 +49,17 @@ const evidenceFields = {
       "Include image in MCP context (up to 5 MiB). Default returns metadata only.",
     ),
   case_id: z.string().trim().min(1).max(120).optional(),
+  source_item_id: contextSchema.shape.source_item_id.describe(
+    "Optional caller-supplied source item identifier, such as a connector tab or Organizer item ID. Identity is not independently verified.",
+  ),
   label: z.string().max(200).optional(),
   note: z.string().max(4000).optional(),
+  embed_description: z
+    .boolean()
+    .optional()
+    .describe(
+      "Embed the supplied description in EXIF UserComment on the saved primary PNG. Default off. Requires ExifTool.",
+    ),
   description: descriptionSchema
     .optional()
     .describe(
@@ -282,6 +291,7 @@ export function createServer(service = new CaptureService(), version = "dev") {
         review_status: reviewStatus.optional(),
         case_id: z.string().max(120).optional(),
         exchange_id: z.string().max(200).optional(),
+        source_item_id: contextSchema.shape.source_item_id,
         query: z.string().min(1).max(200).optional(),
         after: z.string().max(100).optional(),
         limit: z.number().int().min(1).max(100).default(20),
@@ -462,7 +472,9 @@ export function createServer(service = new CaptureService(), version = "dev") {
           label: evidenceFields.label,
           note: evidenceFields.note,
           description: evidenceFields.description,
+          embed_description: evidenceFields.embed_description,
           exchange_id: evidenceFields.exchange_id,
+          source_item_id: evidenceFields.source_item_id,
           tags: evidenceFields.tags,
           case_id: z.string().trim().max(120).optional(),
           display: z.number().int().positive().optional(),
